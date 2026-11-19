@@ -1,0 +1,39 @@
+{
+  "name": "medusajs-pos-plugin",
+  "version": "1.0.0",
+  "description": "Medusa v2 POS Plugin with RegisterModule, Cashier Auditing, Workflows, and Integrations with Repair, Documents, and Paystack",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./modules/register": "./dist/modules/register/index.js",
+    "./workflows": "./dist/workflows/index.js",
+    "./integrations": "./dist/integrations/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npx tsx --test tests/**/*.test.ts"
+  },
+  "keywords": [
+    "medusa",
+    "medusa-plugin",
+    "pos",
+    "register",
+    "cash-drawer",
+    "thermal-printer",
+    "paystack",
+    "repair"
+  ],
+  "author": "Urban Device Care",
+  "license": "MIT",
+  "peerDependencies": {
+    "@medusajs/framework": "^2.17.2",
+    "@medusajs/medusa": "^2.17.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

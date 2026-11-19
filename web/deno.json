@@ -1,0 +1,30 @@
+{
+  "tasks": {
+    "start": "deno run -A --env main.ts",
+    "dev": "deno run -A --watch --env dev.ts",
+    "test": "deno test -A --env tests/"
+  },
+  "imports": {
+    "@/": "./",
+    "@medusajs/js-sdk": "https://esm.sh/@medusajs/js-sdk@2.21.0",
+    "@medusajs/types": "npm:@medusajs/types@2.21.0",
+    "fresh": "jsr:@fresh/core@^2.3.3",
+    "fresh/dev": "jsr:@fresh/core@^2.3.3/dev",
+    "fresh/runtime": "jsr:@fresh/core@^2.3.3/runtime",
+    "lucide-preact": "npm:lucide-preact",
+    "preact": "npm:preact@10.29.1",
+    "preact/hooks": "npm:preact@10.29.1/hooks",
+    "preact/jsx-runtime": "npm:preact@10.29.1/jsx-runtime",
+    "preact/jsx-dev-runtime": "npm:preact@10.29.1/jsx-dev-runtime",
+    "preact/compat": "npm:preact@10.29.1/compat",
+    "@preact/signals": "npm:@preact/signals",
+    "@fresh/plugin-vite": "jsr:@fresh/plugin-vite@^1.0.8",
+    "vite": "npm:vite@^7.1.3",
+    "tailwindcss": "npm:tailwindcss@^4.1.10",
+    "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.1.12"
+  },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
+  }
+}

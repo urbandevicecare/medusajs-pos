@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="pos_background">#121214</color>
+    <color name="pos_surface">#1C1C1E</color>
+    <color name="pos_surface_variant">#2C2C2E</color>
+    <color name="pos_border">#3A3A3C</color>
+    <color name="pos_accent">#0A84FF</color>
+    <color name="pos_success">#30D158</color>
+    <color name="pos_danger">#FF453A</color>
+    <color name="pos_text_primary">#FFFFFF</color>
+    <color name="pos_text_secondary">#8E8E93</color>
+    <color name="pos_text_muted">#636366</color>
+</resources>

@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.yarn/cache/
+.yarn/unplugged/
+.pnp.*
+
+# Build artifacts
+dist/
+build/
+**/build/
+.deno/
+.fresh/
+*.o
+*.bin
+*.dSYM/
+
+# macOS app bundle & executables (build locally with ./build.sh)
+UrbanDevicePOS.app/
+*.app/
+**/*.app/
+**/*.app/**
+UrbanDevicePOS
+macos/UrbanDevicePOS
+**/UrbanDevicePOS
+macos/*.o
+
+# Android build outputs & local config (build locally with ./build_apk.sh)
+.gradle/
+**/.gradle/
+local.properties
+**/local.properties
+UrbanDevicePOS.apk
+*.apk
+**/*.apk
+
+# Legacy / Reference code requested to omit
+old/
+old/**
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# OS files & logs
+.DS_Store
+**/.DS_Store
+*.log

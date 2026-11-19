@@ -1,0 +1,397 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/pos_background"
+    android:padding="12dp">
+
+    <!-- Top Cashier & Terminal Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@color/pos_surface"
+        android:padding="10dp"
+        android:layout_marginBottom="8dp">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_cashier_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Cashier: Nelly K."
+                android:textColor="@color/pos_text_primary"
+                android:textStyle="bold"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/tv_terminal_channel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Terminal: cs30_terminal_01 • Online"
+                android:textColor="@color/pos_success"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_switch_cashier"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Switch PIN"
+            android:textSize="11sp"
+            android:backgroundTint="@color/pos_surface_variant"
+            android:textColor="@color/pos_text_primary" />
+    </LinearLayout>
+
+    <!-- Scan & Search Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <EditText
+            android:id="@+id/et_scan_input"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:hint="Scan barcode or enter part SKU..."
+            android:textColorHint="@color/pos_text_muted"
+            android:textColor="@color/pos_text_primary"
+            android:background="@color/pos_surface_variant"
+            android:paddingHorizontal="12dp"
+            android:textSize="12sp"
+            android:inputType="text"
+            android:imeOptions="actionDone" />
+
+        <Button
+            android:id="@+id/btn_scan_camera"
+            android:layout_width="wrap_content"
+            android:layout_height="42dp"
+            android:text="📷 Camera"
+            android:textSize="11sp"
+            android:layout_marginStart="6dp"
+            android:backgroundTint="@color/pos_accent"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btn_add_code"
+            android:layout_width="wrap_content"
+            android:layout_height="42dp"
+            android:text="Lookup"
+            android:textSize="11sp"
+            android:layout_marginStart="4dp"
+            android:backgroundTint="@color/pos_surface_variant"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+
+    <!-- Main Workspace (Catalog on left/top, Cart on right/bottom) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <!-- Catalog Section -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:background="@color/pos_surface"
+            android:padding="8dp"
+            android:layout_marginEnd="4dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="PARTS &amp; SERVICES CATALOG"
+                android:textColor="@color/pos_text_secondary"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="6dp" />
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+                <LinearLayout
+                    android:id="@+id/layout_catalog_items"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </ScrollView>
+        </LinearLayout>
+
+        <!-- Cart Section -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.2"
+            android:orientation="vertical"
+            android:background="@color/pos_surface"
+            android:padding="8dp"
+            android:layout_marginStart="4dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="ACTIVE SALE CART"
+                android:textColor="@color/pos_text_secondary"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="6dp" />
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+                <LinearLayout
+                    android:id="@+id/layout_cart_items"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </ScrollView>
+
+            <!-- Totals & VAT -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@color/pos_surface_variant"
+                android:padding="8dp"
+                android:layout_marginTop="4dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Subtotal:"
+                        android:textColor="@color/pos_text_secondary"
+                        android:textSize="11sp" />
+                    <TextView
+                        android:id="@+id/tv_subtotal"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="KES 0.00"
+                        android:textColor="@color/pos_text_primary"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="2dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="VAT (16%):"
+                        android:textColor="@color/pos_text_secondary"
+                        android:textSize="11sp" />
+                    <TextView
+                        android:id="@+id/tv_tax"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="KES 0.00"
+                        android:textColor="@color/pos_text_primary"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="4dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="TOTAL DUE:"
+                        android:textColor="@color/pos_text_primary"
+                        android:textStyle="bold"
+                        android:textSize="13sp" />
+                    <TextView
+                        android:id="@+id/tv_grand_total"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="KES 0.00"
+                        android:textColor="@color/pos_accent"
+                        android:textStyle="bold"
+                        android:textSize="14sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Quick Tender Buttons & Change Section -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/pos_surface"
+        android:padding="8dp"
+        android:layout_marginTop="6dp">
+
+        <!-- Quick Cash Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_tender_exact"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="Exact"
+                android:textSize="10sp"
+                android:backgroundTint="@color/pos_surface_variant"
+                android:textColor="#FFFFFF"
+                android:layout_marginEnd="3dp" />
+
+            <Button
+                android:id="@+id/btn_tender_500"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="500"
+                android:textSize="10sp"
+                android:backgroundTint="@color/pos_surface_variant"
+                android:textColor="#FFFFFF"
+                android:layout_marginEnd="3dp" />
+
+            <Button
+                android:id="@+id/btn_tender_1000"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="1,000"
+                android:textSize="10sp"
+                android:backgroundTint="@color/pos_surface_variant"
+                android:textColor="#FFFFFF"
+                android:layout_marginEnd="3dp" />
+
+            <Button
+                android:id="@+id/btn_tender_2000"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="2,000"
+                android:textSize="10sp"
+                android:backgroundTint="@color/pos_surface_variant"
+                android:textColor="#FFFFFF"
+                android:layout_marginEnd="3dp" />
+
+            <Button
+                android:id="@+id/btn_tender_5000"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="5,000"
+                android:textSize="10sp"
+                android:backgroundTint="@color/pos_surface_variant"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+
+        <!-- Tender input & Change line -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="6dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Tendered:"
+                android:textColor="@color/pos_text_secondary"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/et_tender_input"
+                android:layout_width="100dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
+                android:textColor="@color/pos_text_primary"
+                android:background="@color/pos_surface_variant"
+                android:paddingHorizontal="8dp"
+                android:textSize="12sp"
+                android:inputType="numberDecimal" />
+
+            <TextView
+                android:id="@+id/tv_change_due"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Change: KES 0.00"
+                android:textColor="@color/pos_success"
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:gravity="end" />
+        </LinearLayout>
+
+        <!-- Bottom Action Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+
+            <Button
+                android:id="@+id/btn_clear_cart"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:text="Clear"
+                android:textSize="11sp"
+                android:backgroundTint="@color/pos_surface_variant"
+                android:textColor="@color/pos_danger"
+                android:layout_marginEnd="4dp" />
+
+            <Button
+                android:id="@+id/btn_paystack"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1.2"
+                android:text="Paystack QR"
+                android:textSize="11sp"
+                android:backgroundTint="@color/pos_surface_variant"
+                android:textColor="@color/pos_accent"
+                android:layout_marginEnd="4dp" />
+
+            <Button
+                android:id="@+id/btn_charge_print"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="2"
+                android:text="Charge &amp; Print (CS30)"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:backgroundTint="@color/pos_accent"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+
+        <!-- Status notice -->
+        <TextView
+            android:id="@+id/tv_status_notice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Ready for barcode scan or SKU lookup."
+            android:textColor="@color/pos_text_muted"
+            android:textSize="10sp"
+            android:layout_marginTop="4dp" />
+    </LinearLayout>
+</LinearLayout>

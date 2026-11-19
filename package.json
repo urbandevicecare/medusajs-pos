@@ -1,0 +1,20 @@
+{
+  "name": "medusajs-pos",
+  "version": "2.0.0",
+  "description": "Native Multi-Platform POS Ecosystem for MedusaJS v2: Native Swift macOS, Native Android CS30, Fresh.js (Deno) Web POS, and Medusa v2 Backend POS Plugin",
+  "type": "module",
+  "scripts": {
+    "build:mac": "bash macos/build.sh",
+    "test:mac": "bash macos/test.sh",
+    "build:android": "bash android/build_native_apk.sh",
+    "test:android": "cd android && ./gradlew test",
+    "start:web": "cd web && deno task start",
+    "dev:web": "cd web && deno task dev",
+    "test:web": "cd web && deno test -A tests/",
+    "build:plugin": "node ./old/node_modules/typescript/bin/tsc -p plugin/tsconfig.json",
+    "test:plugin": "cd plugin && npx tsx --test tests/**/*.test.ts",
+    "test:all": "bash macos/test.sh && cd android && ./gradlew test && cd ../web && deno test -A tests/ && cd ../plugin && npx tsx --test tests/**/*.test.ts"
+  },
+  "author": "Urban Device Care",
+  "license": "MIT"
+}

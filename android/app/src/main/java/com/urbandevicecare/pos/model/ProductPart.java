@@ -1,0 +1,46 @@
+package com.urbandevicecare.pos.model;
+
+import java.util.Objects;
+
+public class ProductPart {
+    private final String id;
+    private final String title;
+    private final String productTitle;
+    private final String sku;
+    private final String barcode;
+    private final double price;
+    private final int inventoryQuantity;
+
+    public ProductPart(String id, String title, String productTitle, String sku, String barcode, double price, int inventoryQuantity) {
+        this.id = id;
+        this.title = title;
+        this.productTitle = productTitle;
+        this.sku = sku;
+        this.barcode = barcode;
+        this.price = price;
+        this.inventoryQuantity = inventoryQuantity;
+    }
+
+    public String getId() { return id; }
+    public String getTitle() { return title; }
+    public String getProductTitle() { return productTitle; }
+    public String getDisplayTitle() { return productTitle != null && !productTitle.isEmpty() ? productTitle : title; }
+    public String getSku() { return sku; }
+    public String getBarcode() { return barcode; }
+    public double getPrice() { return price; }
+    public int getInventoryQuantity() { return inventoryQuantity; }
+    public String getFormattedPrice() { return String.format("KES %.2f", price); }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        ProductPart that = (ProductPart) o;
+        return Objects.equals(id, that.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+}

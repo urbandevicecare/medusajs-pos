@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.UrbanDevicePOS" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/pos_background</item>
+        <item name="colorPrimary">@color/pos_accent</item>
+        <item name="colorSecondary">@color/pos_accent</item>
+        <item name="android:textColorPrimary">@color/pos_text_primary</item>
+    </style>
+</resources>

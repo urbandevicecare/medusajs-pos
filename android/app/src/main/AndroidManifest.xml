@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!-- Direct CS30 & External POS Thermal Printer Permissions -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:label="Urban Device POS"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.UrbanDevicePOS"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:exported="true"
+            android:label="Urban Device POS"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Native CameraX Scanner -->
+        <activity
+            android:name=".scanner.CameraScannerActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.UrbanDevicePOS" />
+
+        <!-- Broadcast Receiver for CS30 & OEM Android hardware barcode scanners -->
+        <receiver
+            android:name=".scanner.CS30BarcodeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.ACTION_DECODE_DATA" />
+                <action android:name="com.sunmi.scanner.ACTION_DATA_CODE_RECEIVED" />
+                <action android:name="scan.rcv.message" />
+                <action android:name="com.android.server.scannerservice.broadcast" />
+                <action android:name="nlscan.action.SCANNER_RESULT" />
+                <action android:name="com.xcheng.scanner.action.BARCODE_DECODING_BROADCAST" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+</manifest>
