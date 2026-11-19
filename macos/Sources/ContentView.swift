@@ -247,21 +247,22 @@ public struct ContentView: View {
     }
     
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            headerBar
-            Divider()
-            customerBarAndSearch
-            Divider()
-            HStack(alignment: .top, spacing: 16) {
-                scannerAndCatalogPane
-                Divider()
-                cartAndTenderPane
+        Group {
+            if !viewModel.isConnected {
+                offlinePromptView
+            } else if !viewModel.isLoggedIn {
+                StaffLoginView(viewModel: viewModel)
+            } else {
+                mainPosView
             }
-            Divider()
-            footerBar
         }
-        .padding(16)
-        .frame(minWidth: 720, minHeight: 480)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $viewModel.isFirstLaunchSetupOpen) {
+            ServerSettingsSheet(viewModel: viewModel, isFirstLaunch: true)
+        }
+        .sheet(isPresented: $viewModel.showSettingsSheet) {
+            ServerSettingsSheet(viewModel: viewModel, isFirstLaunch: false)
+        }
         .sheet(isPresented: $viewModel.showQuickCustomerSheet) {
             QuickCustomerSheet(viewModel: viewModel)
         }
@@ -270,13 +271,126 @@ public struct ContentView: View {
     // MARK: - Subviews
     
     @ViewBuilder
+    private var offlinePromptView: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            
+            ZStack {
+                Circle()
+                    .fill(Color.orange.opacity(0.12))
+                    .frame(width: 80, height: 80)
+                Image(systemName: "wifi.slash")
+                    .font(.system(size: 36))
+                    .foregroundColor(.orange)
+            }
+            
+            VStack(spacing: 6) {
+                Text("Unable to Connect to Medusa Server")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.primary)
+                Text("Please check your internet connection or verify your remote server settings.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                Text("Target Server: \(viewModel.serverBaseUrl)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.8))
+                    .padding(.top, 2)
+            }
+            
+            HStack(spacing: 12) {
+                Button(action: {
+                    viewModel.checkServerHealthAndSync()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11))
+                        Text("Retry Connection")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.blue)
+                    .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+                
+                Button(action: {
+                    viewModel.showSettingsSheet = true
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 11))
+                        Text("Server Settings")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.gray.opacity(0.12))
+                    .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+            }
+            
+            Spacer()
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+    
+    @ViewBuilder
+    private var mainPosView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            headerBar
+            Divider()
+            customerBarAndSearch
+            Divider()
+            HStack(alignment: .top, spacing: 14) {
+                scannerAndCatalogPane
+                Divider()
+                cartAndTenderPane
+            }
+            Divider()
+            footerBar
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    
+    @ViewBuilder
     private var headerBar: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 10) {
             Text("Urban Device Care POS")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 14, weight: .bold))
                 .foregroundColor(.primary)
             
             Spacer()
+            
+            // Server Settings button
+            Button(action: {
+                viewModel.showSettingsSheet = true
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 10))
+                    Text("Server")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(4)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
             
             Menu {
                 Button("retail_counter_1") { viewModel.selectedChannel = "retail_counter_1" }
@@ -290,20 +404,27 @@ public struct ContentView: View {
             .menuStyle(BorderlessButtonMenuStyle())
             .frame(width: 120)
             
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(viewModel.isConnected ? Color.green : Color.orange)
-                    .frame(width: 8, height: 8)
-                Text(viewModel.connectionStatusText)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.secondary)
+            Button(action: {
+                viewModel.checkServerHealthAndSync()
+            }) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(viewModel.isConnected ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text(viewModel.connectionStatusText)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
             }
+            .buttonStyle(PlainButtonStyle())
+            .help("Click to refresh connection & live catalog")
             
+            // Staff & Role Badge
             HStack(spacing: 4) {
-                Image(systemName: "person.circle.fill")
-                    .font(.system(size: 12))
+                Image(systemName: viewModel.cashier.role == "Admin" ? "crown.fill" : (viewModel.cashier.role == "Repair Technician" ? "wrench.and.screwdriver.fill" : "person.circle.fill"))
+                    .font(.system(size: 11))
                     .foregroundColor(.blue)
-                Text(viewModel.cashier.name)
+                Text("[\(viewModel.cashier.role)] \(viewModel.cashier.name)")
                     .font(.system(size: 11, weight: .bold))
             }
             .padding(.horizontal, 8)
@@ -312,18 +433,21 @@ public struct ContentView: View {
             .cornerRadius(12)
             
             Button(action: {
-                viewModel.switchCashier()
+                viewModel.lockTillSession()
             }) {
-                Text("Switch")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.blue)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.blue.opacity(0.08))
-                    .cornerRadius(6)
-                    .contentShape(Rectangle())
+                HStack(spacing: 4) {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 9))
+                    Text("Lock Till")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
             }
-            .buttonStyle(InteractiveButtonStyle())
+            .buttonStyle(PlainButtonStyle())
             .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
         }
     }
@@ -590,18 +714,19 @@ public struct ContentView: View {
             }
             
             if viewModel.cart.isEmpty {
-                VStack(spacing: 8) {
-                    Spacer()
+                VStack(spacing: 6) {
                     Image(systemName: "cart")
-                        .font(.system(size: 24))
-                        .foregroundColor(.secondary.opacity(0.5))
+                        .font(.system(size: 20))
+                        .foregroundColor(.secondary.opacity(0.4))
                     Text("Cart is empty")
-                        .font(.system(size: 11))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary)
-                    Spacer()
+                    Text("Scan barcode or click catalog part")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary.opacity(0.7))
                 }
-                .frame(maxWidth: .infinity, minHeight: 120)
-                .background(Color.gray.opacity(0.03))
+                .frame(maxWidth: .infinity, minHeight: 105, maxHeight: 105)
+                .background(Color.gray.opacity(0.04))
                 .cornerRadius(6)
             } else {
                 ScrollView {
@@ -616,7 +741,7 @@ public struct ContentView: View {
                     }
                     .padding(.vertical, 2)
                 }
-                .frame(maxHeight: 140)
+                .frame(height: 110)
             }
             
             VStack(spacing: 4) {
@@ -844,6 +969,364 @@ public struct QuickCustomerSheet: View {
         }
         .padding(18)
         .frame(width: 360)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+}
+
+// MARK: - Staff Authentication View (PIN / Medusa Credentials)
+
+public struct StaffLoginView: View {
+    @ObservedObject public var viewModel: POSViewModel
+    @State private var loginMode: Int = 0 // 0: Quick PIN, 1: Medusa Credentials
+    @State private var enteredPin: String = ""
+    @State private var emailInput: String = ""
+    @State private var passwordInput: String = ""
+    @State private var errorMessage: String? = nil
+    @State private var isAuthenticating: Bool = false
+    
+    public init(viewModel: POSViewModel) {
+        self.viewModel = viewModel
+    }
+    
+    public var body: some View {
+        VStack(spacing: 18) {
+            Spacer()
+            
+            // App Branding Header
+            VStack(spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: "bolt.shield.fill")
+                        .font(.system(size: 26))
+                        .foregroundColor(.blue)
+                    Text("Urban Device Care POS")
+                        .font(.system(size: 20, weight: .bold))
+                }
+                Text("Select your staff profile or enter PIN to begin your counter session")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            
+            // Mode Picker
+            Picker("", selection: $loginMode) {
+                Text("Staff Quick PIN").tag(0)
+                Text("Medusa Account").tag(1)
+            }
+            .pickerStyle(SegmentedPickerStyle())
+            .frame(width: 280)
+            
+            if loginMode == 0 {
+                // Quick Staff PIN Cards
+                VStack(spacing: 14) {
+                    HStack(spacing: 12) {
+                        ForEach(viewModel.availableStaff) { staff in
+                            Button(action: {
+                                viewModel.createStaffSession(for: staff)
+                            }) {
+                                VStack(spacing: 6) {
+                                    Image(systemName: staff.role == "Admin" ? "crown.fill" : (staff.role == "Repair Technician" ? "wrench.and.screwdriver.fill" : "person.fill"))
+                                        .font(.system(size: 20))
+                                        .foregroundColor(staff.role == "Admin" ? .orange : (staff.role == "Repair Technician" ? .blue : .green))
+                                    Text(staff.name)
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(.primary)
+                                    Text(staff.role)
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.secondary)
+                                    Text("PIN: \(staff.pin ?? "----")")
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundColor(.secondary.opacity(0.7))
+                                }
+                                .frame(width: 105, height: 95)
+                                .background(Color.gray.opacity(0.08))
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+                        }
+                    }
+                    
+                    // Direct numeric PIN entry
+                    HStack(spacing: 8) {
+                        SecureField("Enter 4-Digit PIN", text: $enteredPin)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .font(.system(size: 14, design: .monospaced))
+                            .frame(width: 160)
+                            .onSubmit {
+                                submitPin()
+                            }
+                        
+                        Button(action: {
+                            submitPin()
+                        }) {
+                            Text("Sign In")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 6)
+                                .background(Color.blue)
+                                .cornerRadius(6)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+                    }
+                }
+            } else {
+                // Medusa Credentials Login
+                VStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Medusa Admin Email")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.secondary)
+                        TextField("admin@urbandevicecare.co.uk", text: $emailInput)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .font(.system(size: 12))
+                            .frame(width: 280)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Password")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.secondary)
+                        SecureField("••••••••", text: $passwordInput)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .font(.system(size: 12))
+                            .frame(width: 280)
+                            .onSubmit {
+                                submitMedusaLogin()
+                            }
+                    }
+                    
+                    Button(action: {
+                        submitMedusaLogin()
+                    }) {
+                        HStack(spacing: 6) {
+                            if isAuthenticating {
+                                ProgressView().scaleEffect(0.5).frame(width: 12, height: 12)
+                            }
+                            Text("Authenticate Session")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(width: 280)
+                        .padding(.vertical, 7)
+                        .background(Color.blue)
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isAuthenticating)
+                    .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+                }
+            }
+            
+            if let err = errorMessage {
+                Text(err)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.red)
+            }
+            
+            Spacer()
+            
+            // Server footer info
+            HStack(spacing: 6) {
+                Circle().fill(Color.green).frame(width: 6, height: 6)
+                Text("Connected: \(viewModel.serverBaseUrl)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
+                Button(action: {
+                    viewModel.showSettingsSheet = true
+                }) {
+                    Text("Change")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.blue)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+    
+    private func submitPin() {
+        let p = enteredPin.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !p.isEmpty else { return }
+        if viewModel.loginWithPin(pin: p) {
+            errorMessage = nil
+        } else {
+            errorMessage = "✖ Incorrect staff PIN code"
+            NSSound.beep()
+        }
+    }
+    
+    private func submitMedusaLogin() {
+        let e = emailInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let p = passwordInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !e.isEmpty && !p.isEmpty else {
+            errorMessage = "Email and password are required"
+            return
+        }
+        isAuthenticating = true
+        errorMessage = nil
+        viewModel.loginWithMedusaCredentials(email: e, password: p) { success, msg in
+            isAuthenticating = false
+            if !success {
+                errorMessage = msg
+                NSSound.beep()
+            }
+        }
+    }
+}
+
+// MARK: - Server Configuration Sheet (First Startup & Reconfiguration)
+
+public struct ServerSettingsSheet: View {
+    @ObservedObject public var viewModel: POSViewModel
+    public var isFirstLaunch: Bool = false
+    
+    @State private var serverUrl: String = ""
+    @State private var apiKey: String = ""
+    @State private var isTesting: Bool = false
+    @State private var testStatusMessage: String? = nil
+    @State private var isTestSuccess: Bool = false
+    
+    public init(viewModel: POSViewModel, isFirstLaunch: Bool = false) {
+        self.viewModel = viewModel
+        self.isFirstLaunch = isFirstLaunch
+        _serverUrl = State(initialValue: viewModel.serverBaseUrl)
+        _apiKey = State(initialValue: viewModel.publishableApiKey)
+    }
+    
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "server.rack")
+                    .foregroundColor(.blue)
+                    .font(.system(size: 20))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isFirstLaunch ? "Welcome to Urban Device Care POS" : "Medusa Server Configuration")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.primary)
+                    Text("Configure your Medusa v2 server endpoint for real-time catalog & customer sync.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Divider()
+            
+            VStack(alignment: .leading, spacing: 6) {
+                Text("SERVER BASE URL").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                TextField("https://admin.urbandevicecare.co.uk", text: $serverUrl)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .font(.system(size: 12, design: .monospaced))
+                
+                // Quick preset buttons
+                HStack(spacing: 6) {
+                    Button(action: {
+                        serverUrl = "https://admin.urbandevicecare.co.uk"
+                    }) {
+                        Text("Remote Production")
+                            .font(.system(size: 9, weight: .medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.1))
+                            .foregroundColor(.blue)
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    Button(action: {
+                        serverUrl = "http://localhost:9000"
+                    }) {
+                        Text("Local Medusa (9000)")
+                            .font(.system(size: 9, weight: .medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.gray.opacity(0.1))
+                            .foregroundColor(.secondary)
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    Button(action: {
+                        serverUrl = "http://localhost:8000"
+                    }) {
+                        Text("Local Fresh (8000)")
+                            .font(.system(size: 9, weight: .medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.gray.opacity(0.1))
+                            .foregroundColor(.secondary)
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("PUBLISHABLE API KEY").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                    Text("(Required for Storefront API)").font(.system(size: 9)).foregroundColor(.secondary.opacity(0.7))
+                }
+                TextField("pk_c7904d9e7fcc...", text: $apiKey)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .font(.system(size: 11, design: .monospaced))
+            }
+            
+            // Test connection row
+            HStack(spacing: 8) {
+                Button(action: {
+                    isTesting = true
+                    testStatusMessage = "Testing connection..."
+                    viewModel.testConnection(urlToTest: serverUrl) { success, message in
+                        isTesting = false
+                        isTestSuccess = success
+                        testStatusMessage = message
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        if isTesting {
+                            ProgressView().scaleEffect(0.5).frame(width: 12, height: 12)
+                        } else {
+                            Image(systemName: "bolt.fill").font(.system(size: 10))
+                        }
+                        Text("Test Connection")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.gray.opacity(0.12))
+                    .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(isTesting)
+                
+                if let msg = testStatusMessage {
+                    Text(msg)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(isTestSuccess ? .green : .red)
+                }
+            }
+            
+            Divider()
+            
+            HStack(spacing: 8) {
+                if !isFirstLaunch {
+                    MinimalButton(title: "Cancel") {
+                        viewModel.showSettingsSheet = false
+                    }
+                }
+                MinimalButton(title: isFirstLaunch ? "Save & Connect" : "Save Settings", isPrimary: true) {
+                    viewModel.saveServerConfig(newUrl: serverUrl, newKey: apiKey)
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
         .background(Color(NSColor.windowBackgroundColor))
     }
 }

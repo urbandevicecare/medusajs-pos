@@ -1,12 +1,13 @@
 {
   "name": "medusajs-pos-plugin",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Medusa v2 POS Plugin with RegisterModule, Cashier Auditing, Workflows, and Integrations with Repair, Documents, and Paystack",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./package.json": "./package.json",
     "./modules/register": "./dist/modules/register/index.js",
     "./workflows": "./dist/workflows/index.js",
     "./integrations": "./dist/integrations/index.js"

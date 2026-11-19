@@ -6,28 +6,31 @@ Built with **100% native platform code (zero headless browser / zero WebView blo
 
 ---
 
-## 📦 Release v2.1.0 Distribution Packages
+## 📦 Release v2.2.0 Distribution Packages
 
 Ready-to-use distribution packages are packaged in `dist/` and published to the GitHub Releases page:
 
 | Package | Archive File | Platform / Target | Footprint |
 | :--- | :--- | :--- | :--- |
-| **Medusa v2 POS Plugin** | `medusajs-pos-plugin-v2.1.0.zip` | Medusa v2 Backend / Node.js | **27 KB** |
-| **Fresh.js Web POS** | `medusajs-webpos-freshjs-v2.1.0.zip` | Deno / Fresh 2.x Storefront | **37 KB** |
-| **macOS Native POS** | `UrbanDevicePOS-macOS-v2.1.0.zip` | macOS 12+ (x86_64 / Apple Silicon) | **1.8 MB** (480 KB binary) |
-| **Android CS30 POS** | `UrbanDevicePOS-android-CS30-v2.1.0.zip` | Handheld Smart POS Model CS30 (Android 11) | **1.2 MB** (1.8 MB APK) |
+| **Medusa v2 POS Plugin** | `medusajs-pos-plugin-v2.2.0.zip` | Medusa v2 Backend / Node.js | **28 KB** |
+| **Fresh.js Web POS** | `medusajs-webpos-freshjs-v2.2.0.zip` | Deno / Fresh 2.x Storefront | **38 KB** |
+| **macOS Native POS** | `UrbanDevicePOS-macOS-v2.2.0.zip` | macOS 12+ (x86_64 / Apple Silicon) | **1.8 MB** (660 KB binary) |
+| **Android CS30 POS** | `UrbanDevicePOS-android-CS30-v2.2.0.zip` | Handheld Smart POS Model CS30 (Android 11) | **1.2 MB** (1.8 MB APK) |
 
-### Key What's New in v2.1.0:
-1. **Dynamic MedusaJS Synchronization**:
-   - The POS dynamically queries MedusaJS v2 backend APIs. When admins add new products, parts, staff, technicians, or customers in Medusa Admin, they immediately reflect across all POS clients (Web, macOS, Android CS30) without having to rebuild the apps.
-2. **Quick Customer Registration & Auto-Select**:
-   - Cashiers can quickly register walk-in customers directly from the counter: First Name, Last Name, Phone Number, Optional Email, and Optional Company Name.
-   - Registers customers as full accounts (`has_account: true`), never anonymous guest carts.
-   - For walk-ins without an email, the system automatically generates an RFC-compliant, collision-safe fallback email (`walkin_{phone}@pos.urbandevicecare.co.uk`) with incremental counters.
-   - Auto-selects the customer into the current transaction with zero additional clicks.
-3. **Optimized Hardware Integrations**:
-   - macOS: Custom `POSHostingView` with `acceptsFirstMouse = true` preventing AppKit window dragging from intercepting clicks.
-   - Android CS30: Native 58mm thermal driver supporting device character nodes (`/dev/tty*`, `/dev/usb/lp0`) and USB Host Class 7, with hardware barcode receiver.
+### Key What's New in v2.2.0:
+1. **Hardware-Backed Apple Keychain Security**:
+   - macOS: Storing API publishable keys and session tokens using Apple's native `Security.framework` (`kSecClassGenericPassword` with AES-256 GCM encryption). Zero plaintext keys stored on disk or in `UserDefaults`.
+2. **First-Startup Remote Server Setup**:
+   - First launch displays a setup sheet allowing staff to set or verify the remote Medusa server URL (`https://admin.urbandevicecare.co.uk`) with live latency testing and preset environments. Securely persisted in Keychain for subsequent launches.
+3. **Staff Authentication & Sales Attribution**:
+   - Supports 4-digit Staff PIN handover (Nelly K. Admin, Dan M. Repair Technician, Alex T. Cashier) and Medusa Admin email/password login.
+   - Automatically attributes staff identity (`staff_id`, `name`, `email`, `role`) to every sale, order, and repair.
+   - Counter "Lock Till" button allows staff to securely lock register between customer transactions.
+4. **Polite Offline State**:
+   - When network or remote server is unreachable, gracefully suppresses mock catalogs and displays a polite prompt instructing staff to check internet connection, with instant retry and server settings configuration.
+5. **UI & Layout Refinement**:
+   - Fixed top title cutoff ("Urban Device Care POS") and empty cart height constraint.
+   - Expanded window size to 920x620 with fixed title visibility.
 
 ---
 

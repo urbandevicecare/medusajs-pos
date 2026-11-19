@@ -10,6 +10,7 @@ echo "=========================================================="
 
 swiftc -parse-as-library -sdk "$SDK_PATH" \
     "$DIR/Sources/Models.swift" \
+    "$DIR/Sources/KeychainSecurity.swift" \
     "$DIR/Sources/ThermalPrinter.swift" \
     "$DIR/Sources/POSViewModel.swift" \
     "$DIR/Sources/POSWindow.swift" \

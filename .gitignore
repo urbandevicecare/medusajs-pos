@@ -5,13 +5,16 @@ node_modules/
 .pnp.*
 
 # Build artifacts
-dist/
+/dist/*
+!/dist/*.zip
+plugin/dist/
 build/
 **/build/
 .deno/
 .fresh/
 *.o
 *.bin
+*.tgz
 *.dSYM/
 
 # macOS app bundle & executables (build locally with ./build.sh)

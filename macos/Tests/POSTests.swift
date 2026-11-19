@@ -21,9 +21,11 @@ struct POSTests {
         testNativeThermalReceiptGeneration()
         testQuickCustomerCreationAndAutoSelect()
         testCustomerSearchAndCheckoutAttribution()
+        testStaffAuthenticationAndSession()
+        testKeychainSecurity()
         
         print("==========================================================")
-        print(" ALL 10 TEST SUITES PASSED SUCCESSFULLY (0 failures)")
+        print(" ALL 12 TEST SUITES PASSED SUCCESSFULLY (0 failures)")
         print("==========================================================")
     }
     
@@ -306,5 +308,59 @@ struct POSTests {
         assert(vm.statusNotice.contains("John Doe"), "Status notice must reference customer John Doe")
         
         print("  ✔ Passed: Customer search pipeline, selection unlinking, and checkout attribution verified")
+    }
+    
+    @MainActor
+    static func testStaffAuthenticationAndSession() {
+        print("▶ Test 11: Staff Authentication, Role Attribution & Session Management")
+        let vm = POSViewModel()
+        
+        // 1. Authenticate with Nelly K. PIN ("1234")
+        let successAdmin = vm.loginWithPin(pin: "1234")
+        assert(successAdmin == true, "Admin PIN 1234 must authenticate")
+        assert(vm.isLoggedIn == true, "Session must be logged in")
+        assert(vm.cashier.name == "Nelly K.", "Cashier name must be Nelly K.")
+        assert(vm.cashier.role == "Admin", "Cashier role must be Admin")
+        assert(vm.currentSession != nil, "Active StaffSession must be created")
+        assert(vm.currentSession?.staffRole == "Admin", "Session role must be Admin")
+        
+        // 2. Lock till session
+        vm.lockTillSession()
+        assert(vm.isLoggedIn == false, "Till must be locked")
+        
+        // 3. Authenticate with Dan M. PIN ("5678") -> Repair Technician
+        let successTech = vm.loginWithPin(pin: "5678")
+        assert(successTech == true, "Technician PIN 5678 must authenticate")
+        assert(vm.isLoggedIn == true, "Session must be logged in")
+        assert(vm.cashier.name == "Dan M.", "Cashier name must be Dan M.")
+        assert(vm.cashier.role == "Repair Technician", "Cashier role must be Repair Technician")
+        
+        // 4. Invalid PIN rejection
+        let fail = vm.loginWithPin(pin: "0000")
+        assert(fail == false, "Invalid PIN 0000 must be rejected")
+        
+        print("  ✔ Passed: Staff PIN authentication, role attribution, and session locking verified")
+    }
+    
+    @MainActor
+    static func testKeychainSecurity() {
+        print("▶ Test 12: Apple Keychain Hardware-Backed Security Storage")
+        let testKey = "test_udc_pos_secret_key"
+        let testSecret = "sk_live_secure_hardware_token_998877"
+        
+        // Save to Keychain
+        let saved = KeychainSecurity.save(key: testKey, value: testSecret)
+        assert(saved == true, "KeychainSecurity must save value without error")
+        
+        // Load from Keychain
+        let loaded = KeychainSecurity.load(key: testKey)
+        assert(loaded == testSecret, "KeychainSecurity must retrieve exact decrypted secret")
+        
+        // Clean up
+        KeychainSecurity.delete(key: testKey)
+        let afterDelete = KeychainSecurity.load(key: testKey)
+        assert(afterDelete == nil, "Deleted key must return nil")
+        
+        print("  ✔ Passed: Apple Keychain encrypted storage and secure retrieval verified")
     }
 }

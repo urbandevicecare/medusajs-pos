@@ -4,17 +4,39 @@ import AppKit
 
 @MainActor
 public class POSViewModel: ObservableObject {
-    @Published public var serverBaseUrl: String = "http://localhost:8000"
-    @Published public var isConnected: Bool = true
-    @Published public var connectionStatusText: String = "Terminal Connected"
+    private let kServerUrlKey = "udc_pos_server_url"
+    private let kPublishableKey = "udc_pos_publishable_key"
+    private let kHasConfiguredKey = "udc_pos_has_configured_server"
+    
+    @Published public var serverBaseUrl: String
+    @Published public var publishableApiKey: String
+    @Published public var isConnected: Bool = false
+    @Published public var connectionStatusText: String = "Connecting..."
     @Published public var selectedChannel: String = "bench_terminal_01"
+    
+    // First startup & Settings sheet controls
+    @Published public var isFirstLaunchSetupOpen: Bool = false
+    @Published public var showSettingsSheet: Bool = false
+    @Published public var isTestingConnection: Bool = false
+    @Published public var testConnectionResult: String? = nil
     
     // Active Cashier (Auditing requirement)
     @Published public var cashier: Cashier = Cashier(
         id: "usr_01KRV9NELLY",
         name: "Nelly K.",
-        email: "nelly@urbandevicecare.co.uk"
+        email: "nelly@urbandevicecare.co.uk",
+        role: "Admin",
+        pin: "1234"
     )
+    
+    // Staff authentication & session state
+    @Published public var isLoggedIn: Bool = false
+    @Published public var currentSession: StaffSession? = nil
+    @Published public var availableStaff: [Cashier] = [
+        Cashier(id: "usr_01KRV9NELLY", name: "Nelly K.", email: "nelly@urbandevicecare.co.uk", role: "Admin", pin: "1234"),
+        Cashier(id: "usr_02TECH_DAN", name: "Dan M.", email: "dan@urbandevicecare.co.uk", role: "Repair Technician", pin: "5678"),
+        Cashier(id: "usr_03CASH_ALEX", name: "Alex T.", email: "alex@urbandevicecare.co.uk", role: "Cashier", pin: "9012")
+    ]
     
     @Published public var catalog: [ProductPart] = []
     @Published public var cart: [CartItem] = []
@@ -38,9 +60,25 @@ public class POSViewModel: ObservableObject {
     @Published public var localCustomers: [POSCustomer] = []
     
     public init() {
+        // Read securely from Apple Keychain (hardware AES-256 encrypted) with legacy fallback
+        let savedUrl = KeychainSecurity.load(key: kServerUrlKey) ?? UserDefaults.standard.string(forKey: kServerUrlKey)
+        let url = (savedUrl != nil && !savedUrl!.isEmpty) ? savedUrl! : "https://admin.urbandevicecare.co.uk"
+        self.serverBaseUrl = url
+        
+        let savedKey = KeychainSecurity.load(key: kPublishableKey) ?? UserDefaults.standard.string(forKey: kPublishableKey)
+        self.publishableApiKey = (savedKey != nil && !savedKey!.isEmpty) ? savedKey! : "pk_c7904d9e7fcc12a1a42277a4e0e33e3479c9653efeed505bdc70dc442d21b067"
+        
+        let hasConfigured = UserDefaults.standard.bool(forKey: kHasConfiguredKey)
+        
         loadMockCatalog()
         loadMockCustomers()
-        fetchServerSession()
+        
+        if !hasConfigured {
+            self.isFirstLaunchSetupOpen = true
+            self.statusNotice = "First startup: please confirm Medusa server URL."
+        } else {
+            checkServerHealthAndSync()
+        }
     }
     
     public var subtotal: Double {
@@ -62,55 +100,190 @@ public class POSViewModel: ObservableObject {
         return tendered - grandTotal
     }
     
-    public func fetchServerSession() {
-        guard let url = URL(string: "\(serverBaseUrl)/api/auth/session") else { return }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 2.0
+    public func saveServerConfig(newUrl: String, newKey: String? = nil) {
+        var cleanUrl = newUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanUrl.hasSuffix("/") {
+            cleanUrl = String(cleanUrl.dropLast())
+        }
+        if !cleanUrl.lowercased().hasPrefix("http://") && !cleanUrl.lowercased().hasPrefix("https://") {
+            cleanUrl = "https://" + cleanUrl
+        }
+        self.serverBaseUrl = cleanUrl
+        _ = KeychainSecurity.save(key: kServerUrlKey, value: cleanUrl)
+        UserDefaults.standard.set(cleanUrl, forKey: kServerUrlKey)
         
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+        if let key = newKey?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
+            self.publishableApiKey = key
+            _ = KeychainSecurity.save(key: kPublishableKey, value: key)
+            UserDefaults.standard.set(key, forKey: kPublishableKey)
+        }
+        
+        UserDefaults.standard.set(true, forKey: kHasConfiguredKey)
+        self.isFirstLaunchSetupOpen = false
+        self.showSettingsSheet = false
+        
+        checkServerHealthAndSync()
+    }
+    
+    public func testConnection(urlToTest: String, completion: @escaping (Bool, String) -> Void) {
+        var cleanUrl = urlToTest.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanUrl.hasSuffix("/") { cleanUrl = String(cleanUrl.dropLast()) }
+        if !cleanUrl.lowercased().hasPrefix("http://") && !cleanUrl.lowercased().hasPrefix("https://") {
+            cleanUrl = "https://" + cleanUrl
+        }
+        
+        guard let url = URL(string: "\(cleanUrl)/health") else {
+            completion(false, "Invalid URL format")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 4.0
+        let startTime = CFAbsoluteTimeGetCurrent()
+        
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000)
             Task { @MainActor in
-                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200, let data = data {
-                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let adminObj = json["admin"] as? [String: Any] {
-                        let id = adminObj["id"] as? String ?? self.cashier.id
-                        let first = adminObj["first_name"] as? String ?? ""
-                        let last = adminObj["last_name"] as? String ?? ""
-                        let email = adminObj["email"] as? String ?? self.cashier.email
-                        self.cashier = Cashier(id: id, name: "\(first) \(last)".trimmingCharacters(in: .whitespaces), email: email)
-                        self.isConnected = true
-                        self.connectionStatusText = "Online (Medusa v2)"
-                        return
-                    }
+                if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                    completion(true, "✔ Connected! (\(latencyMs)ms latency)")
+                } else if let error = error {
+                    completion(false, "✖ Connection failed: \(error.localizedDescription)")
+                } else {
+                    let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    completion(false, "✖ Server returned HTTP \(code)")
                 }
-                self.isConnected = false
-                self.connectionStatusText = "Offline (Local Catalog)"
             }
         }.resume()
     }
     
-    public func searchCatalog(query: String = "") {
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(serverBaseUrl)/api/pos/catalog?q=\(encoded)") else { return }
+    public func checkServerHealthAndSync() {
+        statusNotice = "Connecting to \(serverBaseUrl)..."
+        guard let url = URL(string: "\(serverBaseUrl)/health") else {
+            self.isConnected = false
+            self.connectionStatusText = "Offline (Invalid URL)"
+            return
+        }
+        
         var request = URLRequest(url: url)
-        request.timeoutInterval = 2.0
+        request.timeoutInterval = 4.0
+        
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            Task { @MainActor in
+                if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
+                    self.isConnected = true
+                    self.connectionStatusText = "Online (Medusa v2)"
+                    self.fetchLiveCatalog()
+                } else {
+                    self.isConnected = false
+                    self.connectionStatusText = "Offline (Local Catalog)"
+                    self.statusNotice = "Could not reach \(self.serverBaseUrl). Using local catalog."
+                }
+            }
+        }.resume()
+    }
+    
+    public func fetchLiveCatalog() {
+        guard let url = URL(string: "\(serverBaseUrl)/store/products?limit=100&fields=*variants,*variants.calculated_price") else { return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5.0
+        request.setValue(publishableApiKey, forHTTPHeaderField: "x-publishable-api-key")
         
         URLSession.shared.dataTask(with: request) { data, _, _ in
-            guard let data = data else { return }
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let items = json["items"] as? [[String: Any]] {
-                let parsed = items.compactMap { item -> ProductPart? in
-                    guard let id = item["id"] as? String,
-                          let title = item["title"] as? String else { return nil }
-                    let price = (item["price"] as? NSNumber)?.doubleValue ?? 0.0
-                    let sku = item["sku"] as? String
-                    let barcode = item["barcode"] as? String
-                    let pTitle = item["product_title"] as? String
-                    return ProductPart(id: id, title: title, productTitle: pTitle, sku: sku, barcode: barcode, price: price)
-                }
-                Task { @MainActor in
-                    if !parsed.isEmpty {
-                        self.catalog = parsed
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let products = json["products"] as? [[String: Any]] else {
+                return
+            }
+            
+            var liveParts: [ProductPart] = []
+            for p in products {
+                let pTitle = p["title"] as? String ?? "Part"
+                let variants = p["variants"] as? [[String: Any]] ?? []
+                for v in variants {
+                    guard let vId = v["id"] as? String,
+                          let vTitle = v["title"] as? String else { continue }
+                    let sku = v["sku"] as? String
+                    let barcode = (v["barcode"] as? String) ?? sku
+                    var price: Double = 0.0
+                    if let calcPrice = v["calculated_price"] as? [String: Any] {
+                        if let amt = calcPrice["calculated_amount"] as? NSNumber {
+                            price = amt.doubleValue
+                        } else if let orig = calcPrice["original_amount"] as? NSNumber {
+                            price = orig.doubleValue
+                        }
                     }
+                    liveParts.append(ProductPart(
+                        id: vId,
+                        title: vTitle,
+                        productTitle: pTitle,
+                        sku: sku,
+                        barcode: barcode,
+                        price: price
+                    ))
+                }
+            }
+            
+            let finalParts = liveParts
+            Task { @MainActor in
+                if !finalParts.isEmpty {
+                    self.catalog = finalParts
+                    self.isConnected = true
+                    self.connectionStatusText = "Online (Medusa v2)"
+                    self.statusNotice = "✔ Synced \(finalParts.count) live parts from \(self.serverBaseUrl)"
+                }
+            }
+        }.resume()
+    }
+    
+    public func fetchServerSession() {
+        checkServerHealthAndSync()
+    }
+    
+    public func searchCatalog(query: String = "") {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if q.isEmpty {
+            fetchLiveCatalog()
+            return
+        }
+        guard let encoded = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(serverBaseUrl)/store/products?q=\(encoded)&limit=50&fields=*variants,*variants.calculated_price") else { return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 4.0
+        request.setValue(publishableApiKey, forHTTPHeaderField: "x-publishable-api-key")
+        
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let products = json["products"] as? [[String: Any]] else { return }
+            
+            var results: [ProductPart] = []
+            for p in products {
+                let pTitle = p["title"] as? String ?? ""
+                let variants = p["variants"] as? [[String: Any]] ?? []
+                for v in variants {
+                    guard let vId = v["id"] as? String,
+                          let vTitle = v["title"] as? String else { continue }
+                    let sku = v["sku"] as? String
+                    let barcode = (v["barcode"] as? String) ?? sku
+                    var price: Double = 0.0
+                    if let calcPrice = v["calculated_price"] as? [String: Any],
+                       let amt = calcPrice["calculated_amount"] as? NSNumber {
+                        price = amt.doubleValue
+                    }
+                    results.append(ProductPart(
+                        id: vId,
+                        title: vTitle,
+                        productTitle: pTitle,
+                        sku: sku,
+                        barcode: barcode,
+                        price: price
+                    ))
+                }
+            }
+            let finalResults = results
+            Task { @MainActor in
+                if !finalResults.isEmpty {
+                    self.catalog = finalResults
                 }
             }
         }.resume()
@@ -124,7 +297,7 @@ public class POSViewModel: ObservableObject {
         isProcessing = true
         statusNotice = "Resolving code: \(code)..."
         
-        // 1. Check local catalog first for instant response
+        // 1. Check loaded catalog first for instant response
         if let match = catalog.first(where: {
             $0.sku?.caseInsensitiveCompare(code) == .orderedSame ||
             $0.barcode?.caseInsensitiveCompare(code) == .orderedSame ||
@@ -136,44 +309,58 @@ public class POSViewModel: ObservableObject {
             return
         }
         
-        // 2. Query server scan endpoint
+        // 2. Query remote server store search endpoint
         guard let encoded = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(serverBaseUrl)/api/pos/scan?code=\(encoded)") else {
+              let url = URL(string: "\(serverBaseUrl)/store/products?q=\(encoded)&limit=5&fields=*variants,*variants.calculated_price") else {
             isProcessing = false
             return
         }
         
         var request = URLRequest(url: url)
-        request.timeoutInterval = 2.5
+        request.timeoutInterval = 3.5
+        request.setValue(publishableApiKey, forHTTPHeaderField: "x-publishable-api-key")
         
         URLSession.shared.dataTask(with: request) { data, _, _ in
             Task { @MainActor in
                 self.isProcessing = false
                 guard let data = data,
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let type = json["type"] as? String else {
+                      let products = json["products"] as? [[String: Any]],
+                      !products.isEmpty else {
                     self.statusNotice = "✖ No match for \"\(code)\""
                     NSSound.beep()
                     return
                 }
                 
-                if type == "part", let partObj = json["part"] as? [String: Any],
-                   let id = partObj["id"] as? String,
-                   let title = partObj["title"] as? String {
-                    let price = (partObj["price"] as? NSNumber)?.doubleValue ?? 0.0
-                    let part = ProductPart(id: id, title: title, productTitle: partObj["product_title"] as? String, sku: partObj["sku"] as? String, barcode: partObj["barcode"] as? String, price: price)
-                    self.addToCart(part: part)
-                    self.statusNotice = "✔ Added \(part.displayTitle)"
-                } else if type == "ticket", let tObj = json["ticket"] as? [String: Any],
-                          let id = tObj["id"] as? String,
-                          let tNum = tObj["ticket_number"] as? String {
-                    self.linkedRepairTicket = RepairTicket(id: id, ticketNumber: tNum, customerName: tObj["customer_name"] as? String, deviceName: tObj["device_name"] as? String)
-                    self.statusNotice = "✔ Linked to Ticket #\(tNum)"
-                    NSSound.beep()
-                } else {
-                    self.statusNotice = "✖ Unrecognized barcode: \(code)"
-                    NSSound.beep()
+                for p in products {
+                    let pTitle = p["title"] as? String ?? ""
+                    let variants = p["variants"] as? [[String: Any]] ?? []
+                    if let v = variants.first(where: {
+                        let sku = $0["sku"] as? String
+                        let barcode = $0["barcode"] as? String
+                        let title = $0["title"] as? String ?? ""
+                        return sku?.caseInsensitiveCompare(code) == .orderedSame ||
+                               barcode?.caseInsensitiveCompare(code) == .orderedSame ||
+                               title.localizedCaseInsensitiveContains(code)
+                    }) ?? variants.first {
+                        let vId = v["id"] as? String ?? ""
+                        let vTitle = v["title"] as? String ?? ""
+                        let sku = v["sku"] as? String
+                        let barcode = (v["barcode"] as? String) ?? sku
+                        var price: Double = 0.0
+                        if let calcPrice = v["calculated_price"] as? [String: Any],
+                           let amt = calcPrice["calculated_amount"] as? NSNumber {
+                            price = amt.doubleValue
+                        }
+                        let part = ProductPart(id: vId, title: vTitle, productTitle: pTitle, sku: sku, barcode: barcode, price: price)
+                        self.addToCart(part: part)
+                        self.statusNotice = "✔ Added \(part.displayTitle) [SKU: \(sku ?? "N/A")]"
+                        return
+                    }
                 }
+                
+                self.statusNotice = "✖ No match found for \"\(code)\""
+                NSSound.beep()
             }
         }.resume()
     }
@@ -214,21 +401,79 @@ public class POSViewModel: ObservableObject {
         statusNotice = "Cart cleared."
     }
     
-    public func switchCashier() {
-        let staffList: [Cashier] = [
-            Cashier(id: "usr_01KRV9NELLY", name: "Nelly K.", email: "nelly@urbandevicecare.co.uk"),
-            Cashier(id: "usr_02TECH_DAN", name: "Dan M.", email: "dan@urbandevicecare.co.uk"),
-            Cashier(id: "usr_03CASH_ALEX", name: "Alex T.", email: "alex@urbandevicecare.co.uk")
-        ]
-        if let currentIdx = staffList.firstIndex(where: { $0.id == cashier.id }) {
-            let nextIdx = (currentIdx + 1) % staffList.count
-            cashier = staffList[nextIdx]
-            statusNotice = "Switched active cashier to \(cashier.name)."
-        } else {
-            cashier = staffList[0]
-            statusNotice = "Active cashier: \(cashier.name)."
+    public func loginWithPin(pin: String) -> Bool {
+        guard let staff = availableStaff.first(where: { $0.pin == pin }) else {
+            return false
         }
-        fetchServerSession()
+        createStaffSession(for: staff)
+        return true
+    }
+    
+    public func loginWithStaffMember(_ staff: Cashier) {
+        createStaffSession(for: staff)
+    }
+    
+    public func loginWithMedusaCredentials(email: String, password: String, completion: @escaping (Bool, String) -> Void) {
+        guard let url = URL(string: "\(serverBaseUrl)/auth/user/emailpass") else {
+            completion(false, "Invalid server URL")
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 5.0
+        let body: [String: String] = ["email": email, "password": password]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            Task { @MainActor in
+                if let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data {
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let token = json["token"] as? String {
+                        let namePart = email.components(separatedBy: "@").first?.capitalized ?? "Staff"
+                        let staff = Cashier(
+                            id: "usr_\(Int(Date().timeIntervalSince1970))",
+                            name: namePart,
+                            email: email,
+                            role: email.contains("tech") ? "Repair Technician" : "Admin"
+                        )
+                        self.createStaffSession(for: staff, token: token)
+                        completion(true, "✔ Welcome, \(namePart)!")
+                        return
+                    }
+                }
+                completion(false, "✖ Invalid Medusa email or password")
+            }
+        }.resume()
+    }
+    
+    public func createStaffSession(for staff: Cashier, token: String? = nil) {
+        self.cashier = staff
+        let session = StaffSession(
+            staffId: staff.id,
+            staffName: staff.name,
+            staffEmail: staff.email,
+            staffRole: staff.role,
+            token: token
+        )
+        self.currentSession = session
+        self.isLoggedIn = true
+        self.statusNotice = "Active Session: \(staff.name) [\(staff.role)]"
+        NSSound.beep()
+    }
+    
+    public func lockTillSession() {
+        self.isLoggedIn = false
+        self.statusNotice = "Till locked. Enter PIN or login to resume."
+    }
+    
+    public func switchCashier() {
+        if let currentIdx = availableStaff.firstIndex(where: { $0.id == cashier.id }) {
+            let nextIdx = (currentIdx + 1) % availableStaff.count
+            createStaffSession(for: availableStaff[nextIdx])
+        } else {
+            createStaffSession(for: availableStaff[0])
+        }
     }
     
     public func setTenderExact() {
@@ -290,8 +535,10 @@ public class POSViewModel: ObservableObject {
             "cashier": [
                 "id": cashier.id,
                 "first_name": cashier.name,
-                "email": cashier.email
+                "email": cashier.email,
+                "role": cashier.role
             ] as [String: Any],
+            "session_id": currentSession?.id ?? "ses_default",
             "tender": [
                 "type": selectedTenderType,
                 "amount": grandTotal,
@@ -333,7 +580,7 @@ public class POSViewModel: ObservableObject {
         tenderInputText = ""
         let customerInfo = selectedCustomer != nil ? " for \(selectedCustomer!.fullName)" : ""
         selectedCustomer = nil
-        statusNotice = "✔ Order \(orderNum) completed! Tagged to \(cashier.name)\(customerInfo). Receipt: \(lastReceiptBytesCount) bytes"
+        statusNotice = "✔ Order \(orderNum) completed! Tagged to \(cashier.name) [\(cashier.role)]\(customerInfo). Receipt: \(lastReceiptBytesCount) bytes"
         NSSound.beep()
     }
     

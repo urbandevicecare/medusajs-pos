@@ -1,0 +1,28 @@
+name: Release POS Ecosystem
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          files: |
+            dist/UrbanDevicePOS-macOS-*.zip
+            dist/UrbanDevicePOS-android-CS30-*.zip
+            dist/medusajs-pos-plugin-*.zip
+            dist/medusajs-webpos-freshjs-*.zip
+          generate_release_notes: true

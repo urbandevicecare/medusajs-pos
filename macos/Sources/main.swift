@@ -24,15 +24,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         let hostingView = POSHostingView(rootView: contentView)
         
         window = POSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 880, height: 580),
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: 620),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.minSize = NSSize(width: 740, height: 480)
+        window.minSize = NSSize(width: 820, height: 540)
         window.center()
-        window.setFrameAutosaveName("UrbanDevicePOSMainWindow")
         window.title = "Urban Device Care POS"
+        window.titleVisibility = .visible
         // Disallow moving window by clicking background so button clicks are never intercepted
         window.isMovableByWindowBackground = false
         window.contentView = hostingView

@@ -1,6 +1,6 @@
 {
   "name": "medusajs-pos",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Native Multi-Platform POS Ecosystem for MedusaJS v2: Native Swift macOS, Native Android CS30, Fresh.js (Deno) Web POS, and Medusa v2 Backend POS Plugin",
   "type": "module",
   "scripts": {

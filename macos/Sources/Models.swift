@@ -4,11 +4,35 @@ public struct Cashier: Identifiable, Codable, Hashable {
     public let id: String
     public let name: String
     public let email: String
+    public let role: String
+    public let pin: String?
     
-    public init(id: String, name: String, email: String) {
+    public init(id: String, name: String, email: String, role: String = "Cashier", pin: String? = nil) {
         self.id = id
         self.name = name
         self.email = email
+        self.role = role
+        self.pin = pin
+    }
+}
+
+public struct StaffSession: Identifiable, Codable, Hashable {
+    public let id: String
+    public let staffId: String
+    public let staffName: String
+    public let staffEmail: String
+    public let staffRole: String
+    public let startedAt: Date
+    public let token: String?
+    
+    public init(id: String = "ses_\(Int(Date().timeIntervalSince1970))", staffId: String, staffName: String, staffEmail: String, staffRole: String, startedAt: Date = Date(), token: String? = nil) {
+        self.id = id
+        self.staffId = staffId
+        self.staffName = staffName
+        self.staffEmail = staffEmail
+        self.staffRole = staffRole
+        self.startedAt = startedAt
+        self.token = token
     }
 }
 
