@@ -148,6 +148,13 @@ public class CS30ThermalPrinter {
             // Cashier traceability
             out.write(("Cashier: " + data.getCashierName() + "\n").getBytes(StandardCharsets.UTF_8));
             out.write(("Terminal: " + data.getTerminalId() + "\n").getBytes(StandardCharsets.UTF_8));
+            if (data.getCustomerName() != null && !data.getCustomerName().isEmpty()) {
+                String comp = data.getCustomerCompany() != null && !data.getCustomerCompany().isEmpty() ? " (" + data.getCustomerCompany() + ")" : "";
+                out.write(("Client: " + data.getCustomerName() + comp + "\n").getBytes(StandardCharsets.UTF_8));
+                if (data.getCustomerPhone() != null && !data.getCustomerPhone().isEmpty()) {
+                    out.write(("Phone: " + data.getCustomerPhone() + "\n").getBytes(StandardCharsets.UTF_8));
+                }
+            }
 
             // QR Code (GS ( k) if tracking URL present
             if (data.getTrackingUrl() != null && !data.getTrackingUrl().isEmpty()) {

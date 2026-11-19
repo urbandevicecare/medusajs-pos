@@ -22,6 +22,14 @@ export interface POSCheckoutInput {
     tendered: number;
     change: number;
   };
+  customer?: {
+    id?: string;
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    phone?: string;
+    company_name?: string;
+  };
   repair_ticket_number?: string;
   tax_rate?: number;
 }
@@ -30,6 +38,15 @@ export interface POSCheckoutResult {
   order_id: string;
   order_number: string;
   status: "completed";
+  customer_id?: string;
+  customer?: {
+    id?: string;
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    phone?: string;
+    company_name?: string;
+  };
   subtotal: number;
   tax: number;
   grand_total: number;
@@ -91,6 +108,15 @@ export async function posCheckoutWorkflow(
     change_given: input.tender.change,
     printed_at: new Date().toISOString(),
   };
+
+  if (input.customer) {
+    const custFullName = `${input.customer.first_name || ""} ${input.customer.last_name || ""}`.trim();
+    metadata.customer_id = input.customer.id;
+    metadata.customer_name = custFullName;
+    metadata.customer_email = input.customer.email;
+    metadata.customer_phone = input.customer.phone;
+    metadata.customer_company = input.customer.company_name;
+  }
 
   let cashMovementResult;
   let paystackResult;
@@ -175,6 +201,8 @@ export async function posCheckoutWorkflow(
     order_id: orderId,
     order_number: orderNum,
     status: "completed",
+    customer_id: input.customer?.id,
+    customer: input.customer,
     subtotal,
     tax,
     grand_total: grandTotal,

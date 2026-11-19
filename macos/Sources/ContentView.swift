@@ -250,6 +250,8 @@ public struct ContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             headerBar
             Divider()
+            customerBarAndSearch
+            Divider()
             HStack(alignment: .top, spacing: 16) {
                 scannerAndCatalogPane
                 Divider()
@@ -260,6 +262,9 @@ public struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 720, minHeight: 480)
+        .sheet(isPresented: $viewModel.showQuickCustomerSheet) {
+            QuickCustomerSheet(viewModel: viewModel)
+        }
     }
     
     // MARK: - Subviews
@@ -320,6 +325,178 @@ public struct ContentView: View {
             }
             .buttonStyle(InteractiveButtonStyle())
             .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+        }
+    }
+    
+    @ViewBuilder
+    private var customerBarAndSearch: some View {
+        if let cust = viewModel.selectedCustomer {
+            HStack(spacing: 10) {
+                Image(systemName: "person.crop.circle.badge.checkmark")
+                    .foregroundColor(.green)
+                    .font(.system(size: 18))
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(cust.fullName)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.primary)
+                        Text("Registered Client")
+                            .font(.system(size: 9, weight: .semibold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.green.opacity(0.15))
+                            .foregroundColor(.green)
+                            .cornerRadius(4)
+                        if let comp = cust.companyName, !comp.isEmpty {
+                            Text("• \(comp)")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        if let phone = cust.phone, !phone.isEmpty {
+                            Text("Tel: \(phone)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+                        Text("Email: \(cust.email)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                Spacer()
+                
+                Button(action: {
+                    viewModel.clearSelectedCustomer()
+                }) {
+                    Text("Unlink")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.red.opacity(0.08))
+                        .cornerRadius(4)
+                }
+                .buttonStyle(InteractiveButtonStyle(isDestructive: true))
+            }
+            .padding(8)
+            .background(Color.green.opacity(0.05))
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.green.opacity(0.2), lineWidth: 1)
+            )
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.secondary)
+                        TextField("Search client by name, phone, email, company...", text: $viewModel.customerSearchText)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .font(.system(size: 11))
+                            .onSubmit {
+                                viewModel.searchCustomers(query: viewModel.customerSearchText)
+                            }
+                            .onChange(of: viewModel.customerSearchText) { newQuery in
+                                viewModel.searchCustomers(query: newQuery)
+                            }
+                        if !viewModel.customerSearchText.isEmpty {
+                            Button(action: {
+                                viewModel.customerSearchText = ""
+                                viewModel.searchCustomers(query: "")
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 10))
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding(6)
+                    .background(Color.gray.opacity(0.08))
+                    .cornerRadius(6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                    )
+                    
+                    Button(action: {
+                        viewModel.showQuickCustomerSheet = true
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "person.badge.plus")
+                            Text("+ Quick Customer")
+                                .font(.system(size: 11, weight: .bold))
+                        }
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.blue.opacity(0.12))
+                        .cornerRadius(6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(InteractiveButtonStyle(isPrimary: true))
+                }
+                
+                if !viewModel.customerSearchText.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if !viewModel.searchCustomerResults.isEmpty {
+                            ForEach(viewModel.searchCustomerResults.prefix(3)) { cust in
+                                Button(action: {
+                                    viewModel.selectCustomer(cust)
+                                }) {
+                                    HStack {
+                                        Text(cust.fullName)
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundColor(.primary)
+                                        if let comp = cust.companyName {
+                                            Text("(\(comp))")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.secondary)
+                                        }
+                                        Spacer()
+                                        Text(cust.phone ?? cust.email)
+                                            .font(.system(size: 9, design: .monospaced))
+                                            .foregroundColor(.secondary)
+                                        Text("Select →")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.blue)
+                                    }
+                                    .padding(4)
+                                    .background(Color.gray.opacity(0.04))
+                                    .cornerRadius(4)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        } else {
+                            HStack {
+                                Text("No customer matching \"\(viewModel.customerSearchText)\"")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Button(action: {
+                                    viewModel.showQuickCustomerSheet = true
+                                }) {
+                                    Text("+ Quick Register Client")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.green)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                            .padding(4)
+                        }
+                    }
+                    .padding(4)
+                    .background(Color.gray.opacity(0.06))
+                    .cornerRadius(6)
+                }
+            }
         }
     }
     
@@ -517,3 +694,157 @@ public struct ContentView: View {
         }
     }
 }
+
+// MARK: - Fast Quick Customer Registration Sheet
+
+public struct QuickCustomerSheet: View {
+    @ObservedObject public var viewModel: POSViewModel
+    
+    @State private var firstName: String = ""
+    @State private var lastName: String = ""
+    @State private var phone: String = ""
+    @State private var email: String = ""
+    @State private var companyName: String = ""
+    @State private var errorMessage: String? = nil
+    
+    public init(viewModel: POSViewModel) {
+        self.viewModel = viewModel
+        let query = viewModel.customerSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isEmail = query.contains("@")
+        let isPhone = !isEmail && (query.range(of: "^[0-9+ -]{5,}$", options: .regularExpression) != nil)
+        
+        var fName = ""
+        var lName = ""
+        if !isEmail && !isPhone && !query.isEmpty {
+            let parts = query.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+            if parts.count >= 2 {
+                fName = parts[0]
+                lName = parts.dropFirst().joined(separator: " ")
+            } else {
+                fName = query
+            }
+        }
+        
+        _firstName = State(initialValue: fName)
+        _lastName = State(initialValue: lName)
+        _phone = State(initialValue: isPhone ? query : "")
+        _email = State(initialValue: isEmail ? query : "")
+    }
+    
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Image(systemName: "person.badge.plus")
+                    .foregroundColor(.blue)
+                    .font(.system(size: 16, weight: .bold))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Quick Add Customer")
+                        .font(.system(size: 14, weight: .bold))
+                    Text("Medusa v2 Registered Client (Auto-Selected)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(action: {
+                    viewModel.showQuickCustomerSheet = false
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            if let err = errorMessage {
+                Text(err)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(4)
+            }
+            
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("First Name *").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                    TextField("Alice", text: $firstName)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.system(size: 12))
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Last Name *").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                    TextField("Wambui", text: $lastName)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.system(size: 12))
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Phone Number *").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                TextField("+254 700 112 233", text: $phone)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .font(.system(size: 12))
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Email").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                    Text("(Optional - fallback generated)").font(.system(size: 9)).foregroundColor(.secondary.opacity(0.7))
+                }
+                TextField("client@example.com (or leave empty)", text: $email)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .font(.system(size: 12))
+                Text("If omitted, generates walkin_{phone}@pos.urbandevicecare.co.uk")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary.opacity(0.8))
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Company Name").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                    Text("(Optional)").font(.system(size: 9)).foregroundColor(.secondary.opacity(0.7))
+                }
+                TextField("Safari Tech Ltd", text: $companyName)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .font(.system(size: 12))
+            }
+            
+            Divider()
+            
+            HStack(spacing: 8) {
+                MinimalButton(title: "Cancel") {
+                    viewModel.showQuickCustomerSheet = false
+                }
+                MinimalButton(title: "Register & Auto-Select", isPrimary: true) {
+                    let f = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let l = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let p = phone.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !f.isEmpty else {
+                        errorMessage = "First name is required"
+                        return
+                    }
+                    guard !l.isEmpty else {
+                        errorMessage = "Last name is required"
+                        return
+                    }
+                    guard !p.isEmpty else {
+                        errorMessage = "Phone number is required"
+                        return
+                    }
+                    // Auto-selects newly created customer immediately
+                    viewModel.quickAddCustomer(
+                        firstName: f,
+                        lastName: l,
+                        phone: p,
+                        email: email.isEmpty ? nil : email,
+                        companyName: companyName.isEmpty ? nil : companyName
+                    )
+                }
+            }
+        }
+        .padding(18)
+        .frame(width: 360)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+}
+

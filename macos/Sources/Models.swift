@@ -78,3 +78,38 @@ public struct RepairTicket: Identifiable, Codable, Hashable {
         self.laborEstimate = laborEstimate
     }
 }
+
+public struct POSCustomer: Identifiable, Codable, Hashable {
+    public let id: String
+    public let firstName: String
+    public let lastName: String?
+    public let email: String
+    public let phone: String?
+    public let companyName: String?
+    public let hasAccount: Bool
+    
+    public init(
+        id: String,
+        firstName: String,
+        lastName: String? = nil,
+        email: String,
+        phone: String? = nil,
+        companyName: String? = nil,
+        hasAccount: Bool = true
+    ) {
+        self.id = id
+        self.firstName = firstName
+        self.lastName = lastName
+        self.email = email
+        self.phone = phone
+        self.companyName = companyName
+        self.hasAccount = hasAccount
+    }
+    
+    public var fullName: String {
+        if let last = lastName, !last.isEmpty {
+            return "\(firstName) \(last)"
+        }
+        return firstName
+    }
+}

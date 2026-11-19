@@ -29,8 +29,17 @@ public class POSViewModel: ObservableObject {
     @Published public var linkedRepairTicket: RepairTicket? = nil
     @Published public var lastReceiptBytesCount: Int = 0
     
+    // Customer state & Quick Customer pipeline
+    @Published public var selectedCustomer: POSCustomer? = nil
+    @Published public var customerSearchText: String = ""
+    @Published public var searchCustomerResults: [POSCustomer] = []
+    @Published public var isCustomerSearchOpen: Bool = false
+    @Published public var showQuickCustomerSheet: Bool = false
+    @Published public var localCustomers: [POSCustomer] = []
+    
     public init() {
         loadMockCatalog()
+        loadMockCustomers()
         fetchServerSession()
     }
     
@@ -254,6 +263,9 @@ public class POSViewModel: ObservableObject {
             tenderType: selectedTenderType,
             tendered: Double(tenderInputText) ?? grandTotal,
             change: changeDue,
+            customerName: selectedCustomer?.fullName,
+            customerPhone: selectedCustomer?.phone,
+            customerCompany: selectedCustomer?.companyName,
             trackingUrl: "https://track.urbandevicecare.co.uk/order/\(orderNum)"
         )
         let escPosBytes = NativeThermalPrinter.generateEscPos58mm(data: receiptData)
@@ -266,7 +278,7 @@ public class POSViewModel: ObservableObject {
             return
         }
         
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "items": cart.map { [
                 "variant_id": $0.part.id,
                 "title": $0.part.displayTitle,
@@ -290,6 +302,17 @@ public class POSViewModel: ObservableObject {
             "repair_ticket_id": linkedRepairTicket?.id as Any
         ]
         
+        if let cust = selectedCustomer {
+            payload["customer"] = [
+                "id": cust.id,
+                "first_name": cust.firstName,
+                "last_name": cust.lastName ?? "",
+                "email": cust.email,
+                "phone": cust.phone ?? "",
+                "company_name": cust.companyName ?? ""
+            ] as [String: Any]
+        }
+        
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -308,8 +331,182 @@ public class POSViewModel: ObservableObject {
         isProcessing = false
         cart.removeAll()
         tenderInputText = ""
-        statusNotice = "✔ Order \(orderNum) completed! Tagged to \(cashier.name). Receipt: \(lastReceiptBytesCount) bytes"
+        let customerInfo = selectedCustomer != nil ? " for \(selectedCustomer!.fullName)" : ""
+        selectedCustomer = nil
+        statusNotice = "✔ Order \(orderNum) completed! Tagged to \(cashier.name)\(customerInfo). Receipt: \(lastReceiptBytesCount) bytes"
         NSSound.beep()
+    }
+    
+    // MARK: - Customer Pipeline & Quick Creation
+    
+    public func searchCustomers(query: String) {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        customerSearchText = q
+        guard !q.isEmpty else {
+            searchCustomerResults = localCustomers
+            return
+        }
+        
+        let lowerQ = q.lowercased()
+        searchCustomerResults = localCustomers.filter {
+            $0.fullName.lowercased().contains(lowerQ) ||
+            ($0.phone?.lowercased().contains(lowerQ) ?? false) ||
+            $0.email.lowercased().contains(lowerQ) ||
+            ($0.companyName?.lowercased().contains(lowerQ) ?? false)
+        }
+        
+        guard let encoded = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(serverBaseUrl)/api/pos/customers?q=\(encoded)") else { return }
+        
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2.0
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let list = json["customers"] as? [[String: Any]] else { return }
+            
+            let parsed = list.compactMap { item -> POSCustomer? in
+                guard let id = item["id"] as? String,
+                      let first = item["first_name"] as? String,
+                      let email = item["email"] as? String else { return nil }
+                let last = item["last_name"] as? String
+                let phone = item["phone"] as? String
+                let company = item["company_name"] as? String
+                return POSCustomer(id: id, firstName: first, lastName: last, email: email, phone: phone, companyName: company, hasAccount: true)
+            }
+            
+            Task { @MainActor in
+                if !parsed.isEmpty {
+                    for c in parsed {
+                        if !self.localCustomers.contains(where: { $0.id == c.id || $0.email == c.email }) {
+                            self.localCustomers.append(c)
+                        }
+                    }
+                    self.searchCustomerResults = self.localCustomers.filter {
+                        $0.fullName.lowercased().contains(lowerQ) ||
+                        ($0.phone?.lowercased().contains(lowerQ) ?? false) ||
+                        $0.email.lowercased().contains(lowerQ) ||
+                        ($0.companyName?.lowercased().contains(lowerQ) ?? false)
+                    }
+                }
+            }
+        }.resume()
+    }
+    
+    public func selectCustomer(_ customer: POSCustomer) {
+        selectedCustomer = customer
+        isCustomerSearchOpen = false
+        customerSearchText = ""
+        statusNotice = "✔ Linked client: \(customer.fullName)"
+        NSSound.beep()
+    }
+    
+    public func clearSelectedCustomer() {
+        selectedCustomer = nil
+        statusNotice = "Client unlinked from active order."
+    }
+    
+    @discardableResult
+    public func quickAddCustomer(
+        firstName: String,
+        lastName: String,
+        phone: String,
+        email: String? = nil,
+        companyName: String? = nil
+    ) -> POSCustomer {
+        let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let last = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ph = phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        let comp = companyName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let givenEmail = email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        
+        let cleanPhone = ph.filter { $0.isLetter || $0.isNumber }.lowercased()
+        var finalEmail = !givenEmail.isEmpty ? givenEmail.lowercased() : "walkin_\(cleanPhone.isEmpty ? String(Int(Date().timeIntervalSince1970)) : cleanPhone)@pos.urbandevicecare.co.uk"
+        
+        // Check if customer with this email already exists locally
+        if let existing = localCustomers.first(where: { $0.email.lowercased() == finalEmail.lowercased() }) {
+            let isSame = existing.firstName.caseInsensitiveCompare(first) == .orderedSame &&
+                         (existing.lastName?.caseInsensitiveCompare(last) == .orderedSame || (existing.lastName == nil && last.isEmpty))
+            if isSame {
+                selectedCustomer = existing
+                isCustomerSearchOpen = false
+                showQuickCustomerSheet = false
+                customerSearchText = ""
+                statusNotice = "✔ Selected existing registered client: \(existing.fullName)"
+                NSSound.beep()
+                return existing
+            }
+            // Shared phone with different name: append counter for uniqueness
+            var counter = 2
+            while localCustomers.contains(where: { $0.email.lowercased() == "walkin_\(cleanPhone)_\(counter)@pos.urbandevicecare.co.uk" }) {
+                counter += 1
+            }
+            finalEmail = "walkin_\(cleanPhone)_\(counter)@pos.urbandevicecare.co.uk"
+        }
+        
+        let newCustomer = POSCustomer(
+            id: "cus_\(Int(Date().timeIntervalSince1970))_\(Int.random(in: 1000...9999))",
+            firstName: first,
+            lastName: last.isEmpty ? nil : last,
+            email: finalEmail,
+            phone: ph.isEmpty ? nil : ph,
+            companyName: (comp?.isEmpty ?? true) ? nil : comp,
+            hasAccount: true // Medusa v2 registered customer constraint
+        )
+        
+        // Add to local list
+        localCustomers.insert(newCustomer, at: 0)
+        
+        // CRITICAL ZERO-CLICK REQUIREMENT: Immediately auto-select newly created customer
+        selectedCustomer = newCustomer
+        isCustomerSearchOpen = false
+        showQuickCustomerSheet = false
+        customerSearchText = ""
+        statusNotice = "✔ Registered & autoselected client: \(newCustomer.fullName)"
+        NSSound.beep()
+        
+        // Asynchronously post to /api/pos/customers
+        if let url = URL(string: "\(serverBaseUrl)/api/pos/customers") {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 3.0
+            var payload: [String: Any] = [
+                "first_name": first,
+                "last_name": last,
+                "phone": ph,
+                "email": finalEmail
+            ]
+            if let c = comp, !c.isEmpty { payload["company_name"] = c }
+            request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+            URLSession.shared.dataTask(with: request).resume()
+        }
+        
+        return newCustomer
+    }
+    
+    private func loadMockCustomers() {
+        localCustomers = [
+            POSCustomer(
+                id: "cus_01JOHN_DOE",
+                firstName: "John",
+                lastName: "Doe",
+                email: "john.doe@example.com",
+                phone: "+254712345678",
+                companyName: "Nairobi Tech Ltd",
+                hasAccount: true
+            ),
+            POSCustomer(
+                id: "cus_02JANE_SMITH",
+                firstName: "Jane",
+                lastName: "Smith",
+                email: "jane.smith@urbandevicecare.co.uk",
+                phone: "+254722998877",
+                companyName: "Urban Studios",
+                hasAccount: true
+            )
+        ]
+        searchCustomerResults = localCustomers
     }
     
     public func printLastReceipt() -> Bool {

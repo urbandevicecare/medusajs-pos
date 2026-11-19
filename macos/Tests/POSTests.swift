@@ -19,9 +19,11 @@ struct POSTests {
         testSaleCompletion()
         testButtonActionExecution()
         testNativeThermalReceiptGeneration()
+        testQuickCustomerCreationAndAutoSelect()
+        testCustomerSearchAndCheckoutAttribution()
         
         print("==========================================================")
-        print(" ALL 8 TEST SUITES PASSED SUCCESSFULLY (0 failures)")
+        print(" ALL 10 TEST SUITES PASSED SUCCESSFULLY (0 failures)")
         print("==========================================================")
     }
     
@@ -211,5 +213,98 @@ struct POSTests {
         let endIdx = bytes.count - 1
         assert(bytes[endIdx] == 0x00 && bytes[endIdx - 1] == 0x42 && bytes[endIdx - 2] == 0x56 && bytes[endIdx - 3] == 0x1D, "Receipt must end with paper cut GS V B 0")
         print("  ✔ Passed: Native ESC/POS 58mm binary generation validated (\(data.count) bytes)")
+    }
+    
+    @MainActor
+    static func testQuickCustomerCreationAndAutoSelect() {
+        print("▶ Test 9: Quick Registered Customer Creation with Walk-in Fallback Email & Zero-Click Auto-Selection")
+        let vm = POSViewModel()
+        assert(vm.selectedCustomer == nil, "Initial active customer should be nil")
+        
+        // 1. Quick create customer without email (triggers auto-generated walkin_{cleanPhone}@pos.urbandevicecare.co.uk)
+        let newCust = vm.quickAddCustomer(
+            firstName: "Alice",
+            lastName: "Wambui",
+            phone: "+254 700 112 233",
+            email: nil,
+            companyName: "Safari Tech Ltd"
+        )
+        
+        assert(newCust.firstName == "Alice", "Customer first name must match")
+        assert(newCust.lastName == "Wambui", "Customer last name must match")
+        assert(newCust.phone == "+254 700 112 233", "Customer phone must match")
+        assert(newCust.companyName == "Safari Tech Ltd", "Company name must match")
+        assert(newCust.hasAccount == true, "Must be created as a registered client, not a guest")
+        assert(newCust.email == "walkin_254700112233@pos.urbandevicecare.co.uk", "Should auto-generate unique walkin email from sanitized phone")
+        
+        // 2. CRITICAL REQUIREMENT: Check ZERO-CLICK auto-selection into current session
+        assert(vm.selectedCustomer != nil, "Created customer must immediately be auto-selected")
+        assert(vm.selectedCustomer?.id == newCust.id, "Auto-selected customer ID must match created customer")
+        assert(vm.selectedCustomer?.fullName == "Alice Wambui", "Full name must be formatted correctly")
+        
+        // 3. Quick create customer with explicit email
+        let custWithEmail = vm.quickAddCustomer(
+            firstName: "Bob",
+            lastName: "Otieno",
+            phone: "0711223344",
+            email: "bob.otieno@company.com",
+            companyName: nil
+        )
+        assert(custWithEmail.email == "bob.otieno@company.com", "Explicit email must be preserved")
+        assert(vm.selectedCustomer?.id == custWithEmail.id, "Bob must now be auto-selected")
+        
+        // 4. Shared phone number with different name: collision-safe unique email
+        let sharedPhoneCust = vm.quickAddCustomer(
+            firstName: "Charles",
+            lastName: "Wambui",
+            phone: "+254 700 112 233",
+            email: nil,
+            companyName: nil
+        )
+        assert(sharedPhoneCust.email == "walkin_254700112233_2@pos.urbandevicecare.co.uk", "Must append counter to avoid Medusa duplicate email constraint")
+        assert(vm.selectedCustomer?.id == sharedPhoneCust.id, "Charles must be auto-selected")
+        
+        // 5. Idempotent re-registration of exact same customer
+        let aliceAgain = vm.quickAddCustomer(
+            firstName: "Alice",
+            lastName: "Wambui",
+            phone: "+254 700 112 233"
+        )
+        assert(aliceAgain.id == newCust.id, "Re-registering same customer should return existing record")
+        assert(aliceAgain.email == "walkin_254700112233@pos.urbandevicecare.co.uk", "Original fallback email preserved")
+        assert(vm.selectedCustomer?.id == newCust.id, "Alice must be re-selected")
+        
+        print("  ✔ Passed: Registered customer creation, fallback walk-in email generation, and zero-click auto-select verified")
+    }
+    
+    @MainActor
+    static func testCustomerSearchAndCheckoutAttribution() {
+        print("▶ Test 10: Customer Search, Selection Toggle, and Checkout Sales Attribution")
+        let vm = POSViewModel()
+        
+        // 1. Search customer by query
+        vm.searchCustomers(query: "John")
+        assert(!vm.searchCustomerResults.isEmpty, "Search for 'John' should find at least 1 customer")
+        assert(vm.searchCustomerResults[0].firstName == "John", "Search result must be John Doe")
+        
+        // 2. Select customer
+        vm.selectCustomer(vm.searchCustomerResults[0])
+        assert(vm.selectedCustomer?.firstName == "John", "Customer should be selected")
+        
+        // 3. Unlink customer
+        vm.clearSelectedCustomer()
+        assert(vm.selectedCustomer == nil, "Customer should be unlinked")
+        
+        // 4. Select again and complete sale
+        vm.selectCustomer(vm.searchCustomerResults[0])
+        let part = vm.catalog[0]
+        vm.addToCart(part: part)
+        
+        vm.finishLocalSale(orderNum: "POS-981240")
+        assert(vm.cart.isEmpty, "Cart must be cleared after sale")
+        assert(vm.selectedCustomer == nil, "Active session customer must be reset for next sale")
+        assert(vm.statusNotice.contains("John Doe"), "Status notice must reference customer John Doe")
+        
+        print("  ✔ Passed: Customer search pipeline, selection unlinking, and checkout attribution verified")
     }
 }

@@ -3,6 +3,11 @@ import {
   Printer,
   Barcode,
   User,
+  UserPlus,
+  Building,
+  Phone,
+  Mail,
+  X,
   Lock,
   ShoppingCart,
   Trash2,
@@ -34,6 +39,17 @@ interface Cashier {
   email: string;
 }
 
+export interface POSCustomer {
+  id: string;
+  first_name: string;
+  last_name?: string;
+  email: string;
+  phone?: string;
+  company_name?: string;
+  has_account?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
 export default function PosTerminal() {
   const [cashier, setCashier] = useState<Cashier>({
     id: "usr_01KRV9NELLY",
@@ -57,6 +73,26 @@ export default function PosTerminal() {
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [lastOrderNum, setLastOrderNum] = useState<string | null>(null);
+
+  // Customer state & Quick Customer pipeline
+  const [selectedCustomer, setSelectedCustomer] = useState<POSCustomer | null>(null);
+  const [customerSearchInput, setCustomerSearchInput] = useState("");
+  const [customerResults, setCustomerResults] = useState<POSCustomer[]>([]);
+  const [cachedCustomers, setCachedCustomers] = useState<POSCustomer[]>([
+    { id: "cus_01JOHN_DOE", first_name: "John", last_name: "Doe", email: "john.doe@example.com", phone: "+254712345678", company_name: "Nairobi Tech Ltd", has_account: true },
+    { id: "cus_02JANE_SMITH", first_name: "Jane", last_name: "Smith", email: "jane.smith@urbandevicecare.co.uk", phone: "+254722998877", company_name: "Urban Studios", has_account: true },
+  ]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+  const [customerFormError, setCustomerFormError] = useState<string | null>(null);
+  const [customerForm, setCustomerForm] = useState({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    email: "",
+    companyName: "",
+  });
 
   // Hardware wedge scanner buffer
   const wedgeBuffer = useRef<string>("");
@@ -223,6 +259,186 @@ export default function PosTerminal() {
     setShowPinModal(false);
   };
 
+  const handleCustomerSearch = async (query: string) => {
+    setCustomerSearchInput(query);
+    setShowCustomerDropdown(true);
+    const q = (query || "").trim().toLowerCase();
+    if (!q) {
+      setCustomerResults([]);
+      return;
+    }
+
+    let serverCustomers: POSCustomer[] = [];
+    try {
+      let res = await fetch(`/api/pos/customers?q=${encodeURIComponent(query)}`);
+      if (!res.ok) {
+        res = await fetch(`/api/customers?q=${encodeURIComponent(query)}`);
+      }
+      if (res.ok) {
+        const data = await res.json();
+        serverCustomers = data.customers || [];
+      }
+    } catch {
+      // Offline fallback
+    }
+
+    const localMatches = cachedCustomers.filter((c) =>
+      `${c.first_name} ${c.last_name || ""}`.toLowerCase().includes(q) ||
+      (c.phone || "").toLowerCase().includes(q) ||
+      c.email.toLowerCase().includes(q) ||
+      (c.company_name || "").toLowerCase().includes(q)
+    );
+
+    // Merge server customers and cached customers with deduplication
+    const merged: POSCustomer[] = [...serverCustomers];
+    const seenIds = new Set(serverCustomers.map((c) => c.id));
+    const seenEmails = new Set(serverCustomers.map((c) => c.email.toLowerCase()));
+    for (const c of localMatches) {
+      if (!seenIds.has(c.id) && !seenEmails.has(c.email.toLowerCase())) {
+        merged.push(c);
+        seenIds.add(c.id);
+        seenEmails.add(c.email.toLowerCase());
+      }
+    }
+
+    setCustomerResults(merged);
+  };
+
+  const selectCustomer = (customer: POSCustomer) => {
+    setSelectedCustomer(customer);
+    setShowCustomerDropdown(false);
+    setCustomerSearchInput("");
+    setStatusNotice(`✔ Selected client: ${customer.first_name} ${customer.last_name || ""} (${customer.phone || customer.email})`);
+  };
+
+  const openQuickCustomerModal = (presetQuery: string = "") => {
+    const trimmed = presetQuery.trim();
+    const isEmail = trimmed.includes("@");
+    const isPhone = !isEmail && /^[0-9+ -]{5,}$/.test(trimmed);
+
+    let fName = "";
+    let lName = "";
+    if (!isEmail && !isPhone && trimmed.length > 0) {
+      const parts = trimmed.split(/\s+/);
+      if (parts.length >= 2) {
+        fName = parts[0];
+        lName = parts.slice(1).join(" ");
+      } else {
+        fName = trimmed;
+      }
+    }
+
+    setCustomerForm({
+      firstName: fName,
+      lastName: lName,
+      phone: isPhone ? trimmed : "",
+      email: isEmail ? trimmed : "",
+      companyName: "",
+    });
+    setCustomerFormError(null);
+    setShowCustomerDropdown(false);
+    setShowCustomerModal(true);
+  };
+
+  const handleCreateCustomerSubmit = async (e?: Event) => {
+    if (e) e.preventDefault();
+    setCustomerFormError(null);
+
+    const firstName = customerForm.firstName.trim();
+    const lastName = customerForm.lastName.trim();
+    const phone = customerForm.phone.trim();
+    const email = customerForm.email.trim();
+    const companyName = customerForm.companyName.trim();
+
+    if (!firstName) {
+      setCustomerFormError("First name is required.");
+      return;
+    }
+    if (!lastName) {
+      setCustomerFormError("Last name is required.");
+      return;
+    }
+    if (!phone) {
+      setCustomerFormError("Phone number is required.");
+      return;
+    }
+
+    setIsCreatingCustomer(true);
+    try {
+      const payload = {
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+        email: email || undefined,
+        company_name: companyName || undefined,
+      };
+
+      let res = await fetch("/api/pos/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        res = await fetch("/api/customers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to create customer");
+      }
+
+      const data = await res.json();
+      const cleanPhone = phone.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || Date.now().toString();
+      const newCustomer: POSCustomer = data.customer || {
+        id: `cus_${Date.now()}`,
+        ...payload,
+        has_account: true,
+        email: payload.email || `walkin_${cleanPhone}@pos.urbandevicecare.co.uk`,
+      };
+
+      // Add to cached customers so offline & dynamic search resolves them
+      setCachedCustomers((prev) => [
+        newCustomer,
+        ...prev.filter((c) => c.id !== newCustomer.id && c.email.toLowerCase() !== newCustomer.email.toLowerCase()),
+      ]);
+
+      // Autoselect into active order/ticket session with ZERO extra clicks
+      setSelectedCustomer(newCustomer);
+      setShowCustomerModal(false);
+      setCustomerSearchInput("");
+      setStatusNotice(`✔ Registered and autoselected customer: ${newCustomer.first_name} ${newCustomer.last_name || ""}`);
+    } catch (_err) {
+      // Local fallback for offline mode
+      const cleanPhone = phone.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || Date.now().toString();
+      const fallbackCustomer: POSCustomer = {
+        id: `cus_${Date.now()}`,
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+        email: email || `walkin_${cleanPhone}@pos.urbandevicecare.co.uk`,
+        company_name: companyName || undefined,
+        has_account: true,
+      };
+
+      setCachedCustomers((prev) => [
+        fallbackCustomer,
+        ...prev.filter((c) => c.id !== fallbackCustomer.id && c.email.toLowerCase() !== fallbackCustomer.email.toLowerCase()),
+      ]);
+
+      setSelectedCustomer(fallbackCustomer);
+      setShowCustomerModal(false);
+      setCustomerSearchInput("");
+      setStatusNotice(`✔ Registered and autoselected customer: ${fallbackCustomer.first_name} ${fallbackCustomer.last_name || ""}`);
+    } finally {
+      setIsCreatingCustomer(false);
+    }
+  };
+
   const completeCheckout = async () => {
     if (cart.length === 0) {
       setStatusNotice("Cart is empty.");
@@ -235,6 +451,7 @@ export default function PosTerminal() {
     const payload = {
       order_number: orderNum,
       cashier,
+      customer: selectedCustomer,
       terminal_channel: channel,
       items: cart.map((c) => ({
         variant_id: c.part.id,
@@ -271,8 +488,12 @@ export default function PosTerminal() {
       // offline fallback handled by local state
     }
 
+    const completedCustomerNotice = selectedCustomer
+      ? ` for ${selectedCustomer.first_name} ${selectedCustomer.last_name || ""}`
+      : "";
     clearCart();
-    setStatusNotice(`✔ Order ${orderNum} completed! Tagged to ${cashier.name}.`);
+    setSelectedCustomer(null);
+    setStatusNotice(`✔ Order ${orderNum} completed! Tagged to ${cashier.name}${completedCustomerNotice}.`);
   };
 
   const printReceipt = () => {
@@ -330,6 +551,152 @@ export default function PosTerminal() {
           </button>
         </div>
       </header>
+
+      {/* Selected Customer HUD Bar */}
+      {selectedCustomer ? (
+        <div class="flex items-center justify-between bg-emerald-950/40 border border-emerald-700/50 rounded-xl px-3 py-2.5 mb-3 shadow-sm">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-full bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+              <User class="w-4 h-4" />
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="text-xs font-bold text-white tracking-wide">
+                  {selectedCustomer.first_name} {selectedCustomer.last_name || ""}
+                </span>
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Registered Client
+                </span>
+                {selectedCustomer.company_name && (
+                  <span class="text-[11px] text-zinc-300 flex items-center space-x-1 font-medium">
+                    <Building class="w-3 h-3 text-zinc-400" />
+                    <span>{selectedCustomer.company_name}</span>
+                  </span>
+                )}
+              </div>
+              <div class="flex items-center space-x-3 text-[10px] text-zinc-400 font-mono mt-0.5">
+                <span class="flex items-center space-x-1">
+                  <Phone class="w-3 h-3 text-zinc-500" />
+                  <span>{selectedCustomer.phone || "No phone"}</span>
+                </span>
+                <span class="flex items-center space-x-1">
+                  <Mail class="w-3 h-3 text-zinc-500" />
+                  <span>{selectedCustomer.email}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setSelectedCustomer(null);
+              setStatusNotice("Customer unlinked from current session.");
+            }}
+            class="inline-flex items-center space-x-1 text-[11px] text-zinc-400 hover:text-red-400 px-2.5 py-1.5 rounded-lg bg-[#2C2C2E] border border-[#3A3A3C] transition active:scale-95"
+            title="Unlink Customer"
+          >
+            <X class="w-3.5 h-3.5" />
+            <span>Unlink</span>
+          </button>
+        </div>
+      ) : (
+        /* Customer Search Bar with Quick Add Trigger */
+        <div class="relative mb-3">
+          <div class="flex items-center space-x-2">
+            <div class="relative flex-1">
+              <User class="absolute left-3 top-2.5 w-4 h-4 text-zinc-400" />
+              <input
+                type="text"
+                value={customerSearchInput}
+                onInput={(e) => handleCustomerSearch((e.target as HTMLInputElement).value)}
+                onFocus={() => setShowCustomerDropdown(true)}
+                placeholder="Search registered client by name, phone, email, or company..."
+                class="w-full bg-[#1C1C1E] border border-[#2C2C2E] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
+              />
+              {customerSearchInput && (
+                <button
+                  onClick={() => {
+                    setCustomerSearchInput("");
+                    setCustomerResults([]);
+                    setShowCustomerDropdown(false);
+                  }}
+                  class="absolute right-2.5 top-2.5 text-zinc-500 hover:text-white"
+                >
+                  <X class="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => openQuickCustomerModal(customerSearchInput)}
+              class="inline-flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition active:scale-95 shadow whitespace-nowrap"
+              title="Add a new customer not in the database"
+            >
+              <UserPlus class="w-3.5 h-3.5" />
+              <span>+ Quick Customer</span>
+            </button>
+          </div>
+
+          {/* Autocomplete Dropdown */}
+          {showCustomerDropdown && customerSearchInput.trim().length > 0 && (
+            <div class="absolute left-0 right-0 top-full mt-1 bg-[#1C1C1E] border border-[#3A3A3C] rounded-xl shadow-2xl z-40 max-h-60 overflow-y-auto p-1.5">
+              {customerResults.length > 0 ? (
+                <div class="space-y-1">
+                  <div class="text-[10px] uppercase font-bold text-zinc-500 px-2 py-1 tracking-wider">
+                    Found Clients ({customerResults.length})
+                  </div>
+                  {customerResults.map((c) => (
+                    <div
+                      key={c.id}
+                      onClick={() => selectCustomer(c)}
+                      class="p-2 rounded-lg hover:bg-[#2C2C2E] cursor-pointer flex items-center justify-between transition group"
+                    >
+                      <div>
+                        <div class="flex items-center space-x-2">
+                          <p class="text-xs font-semibold text-zinc-100 group-hover:text-white">
+                            {c.first_name} {c.last_name || ""}
+                          </p>
+                          {c.company_name && (
+                            <span class="text-[10px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                              {c.company_name}
+                            </span>
+                          )}
+                        </div>
+                        <p class="text-[10px] text-zinc-400 font-mono">
+                          {c.phone || "No phone"} • {c.email}
+                        </p>
+                      </div>
+                      <span class="text-[11px] font-medium text-blue-400 group-hover:underline">
+                        Select →
+                      </span>
+                    </div>
+                  ))}
+                  <div class="border-t border-[#2C2C2E] pt-1 mt-1">
+                    <button
+                      onClick={() => openQuickCustomerModal(customerSearchInput)}
+                      class="w-full text-left p-2 rounded-lg hover:bg-[#2C2C2E] text-xs text-emerald-400 font-semibold flex items-center space-x-1.5"
+                    >
+                      <UserPlus class="w-3.5 h-3.5" />
+                      <span>Not listed? Register new customer "{customerSearchInput}"</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div class="p-3 text-center">
+                  <p class="text-xs text-zinc-400 mb-2">
+                    No client found matching "<span class="text-white font-medium">{customerSearchInput}</span>"
+                  </p>
+                  <button
+                    onClick={() => openQuickCustomerModal(customerSearchInput)}
+                    class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition active:scale-95 shadow"
+                  >
+                    <UserPlus class="w-3.5 h-3.5" />
+                    <span>Quick Register "{customerSearchInput}"</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Barcode Search Bar */}
       <div class="flex items-center space-x-2 mb-4">
@@ -583,6 +950,139 @@ export default function PosTerminal() {
                 Switch Cashier
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Customer Registration Modal */}
+      {showCustomerModal && (
+        <div class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div class="bg-[#1C1C1E] border border-[#3A3A3C] rounded-2xl p-5 max-w-md w-full shadow-2xl">
+            <div class="flex items-center justify-between pb-3 mb-4 border-b border-[#2C2C2E]">
+              <div class="flex items-center space-x-2.5">
+                <div class="w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <UserPlus class="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 class="text-sm font-bold text-white">Quick Add Customer</h3>
+                  <p class="text-[11px] text-zinc-400">Medusa v2 Registered Client (Auto-Selected)</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCustomerModal(false)}
+                class="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-[#2C2C2E]"
+              >
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+
+            {customerFormError && (
+              <div class="mb-3 p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-400">
+                {customerFormError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateCustomerSubmit} class="space-y-3">
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    First Name <span class="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={customerForm.firstName}
+                    onInput={(e) =>
+                      setCustomerForm({ ...customerForm, firstName: (e.target as HTMLInputElement).value })
+                    }
+                    placeholder="e.g. Alice"
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    Last Name <span class="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={customerForm.lastName}
+                    onInput={(e) =>
+                      setCustomerForm({ ...customerForm, lastName: (e.target as HTMLInputElement).value })
+                    }
+                    placeholder="e.g. Wambui"
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                  Phone Number <span class="text-red-400">*</span>
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={customerForm.phone}
+                  onInput={(e) =>
+                    setCustomerForm({ ...customerForm, phone: (e.target as HTMLInputElement).value })
+                  }
+                  placeholder="e.g. +254 700 112 233"
+                  class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                  Email <span class="text-[10px] text-zinc-500 font-normal">(Optional - auto-generated fallback)</span>
+                </label>
+                <input
+                  type="email"
+                  value={customerForm.email}
+                  onInput={(e) =>
+                    setCustomerForm({ ...customerForm, email: (e.target as HTMLInputElement).value })
+                  }
+                  placeholder="e.g. client@example.com (or leave empty)"
+                  class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                />
+                <p class="text-[10px] text-zinc-500 mt-1">
+                  If omitted, generates <span class="font-mono text-zinc-400">walkin_{"{phone}"}@pos.urbandevicecare.co.uk</span> for Medusa registered constraint.
+                </p>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                  Company Name <span class="text-[10px] text-zinc-500 font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={customerForm.companyName}
+                  onInput={(e) =>
+                    setCustomerForm({ ...customerForm, companyName: (e.target as HTMLInputElement).value })
+                  }
+                  placeholder="e.g. Safari Tech Ltd"
+                  class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 pt-3 border-t border-[#2C2C2E]">
+                <button
+                  type="button"
+                  onClick={() => setShowCustomerModal(false)}
+                  class="py-2.5 bg-[#2C2C2E] hover:bg-zinc-700 text-xs font-semibold rounded-lg text-zinc-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingCustomer}
+                  class="py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-xs font-bold rounded-lg text-white transition flex items-center justify-center space-x-1.5 shadow"
+                >
+                  <CheckCircle2 class="w-3.5 h-3.5" />
+                  <span>{isCreatingCustomer ? "Registering..." : "Register & Auto-Select"}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

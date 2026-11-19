@@ -12,6 +12,9 @@ public struct ReceiptData {
     public let tenderType: String
     public let tendered: Double
     public let change: Double
+    public let customerName: String?
+    public let customerPhone: String?
+    public let customerCompany: String?
     public let trackingUrl: String?
     
     public init(
@@ -26,6 +29,9 @@ public struct ReceiptData {
         tenderType: String = "cash",
         tendered: Double,
         change: Double,
+        customerName: String? = nil,
+        customerPhone: String? = nil,
+        customerCompany: String? = nil,
         trackingUrl: String? = nil
     ) {
         self.storeName = storeName
@@ -39,6 +45,9 @@ public struct ReceiptData {
         self.tenderType = tenderType
         self.tendered = tendered
         self.change = change
+        self.customerName = customerName
+        self.customerPhone = customerPhone
+        self.customerCompany = customerCompany
         self.trackingUrl = trackingUrl
     }
 }
@@ -107,6 +116,13 @@ public class NativeThermalPrinter {
         // Cashier Audit attribution
         appendString(&bytes, "Cashier: \(data.cashierName)\n")
         appendString(&bytes, "Terminal: \(data.terminalId)\n")
+        if let cust = data.customerName, !cust.isEmpty {
+            let comp = data.customerCompany != nil ? " (\(data.customerCompany!))" : ""
+            appendString(&bytes, "Client: \(cust)\(comp)\n")
+            if let phone = data.customerPhone, !phone.isEmpty {
+                appendString(&bytes, "Phone: \(phone)\n")
+            }
+        }
         
         // Center alignment for QR code
         if let url = data.trackingUrl, !url.isEmpty {

@@ -7,10 +7,12 @@ import { handler as posScanHandler } from "../routes/api/pos/scan.ts";
 import { handler as posCheckoutHandler } from "../routes/api/pos/checkout.ts";
 import { handler as posReceiptHandler } from "../routes/api/pos/receipt.ts";
 import { handler as posAuthHandler } from "../routes/api/pos/auth.ts";
+import { handler as posCustomersHandler } from "../routes/api/pos/customers.ts";
 import { handler as legacyScanHandler } from "../routes/api/scan.ts";
 import { handler as legacyCheckoutHandler } from "../routes/api/checkout.ts";
 import { handler as legacyReceiptHandler } from "../routes/api/receipt.ts";
 import { handler as legacyAuthHandler } from "../routes/api/auth.ts";
+import { handler as legacyCustomersHandler } from "../routes/api/customers.ts";
 
 const service = new MedusaPOSService();
 
@@ -276,4 +278,150 @@ Deno.test("POS Route: /pos page module exports valid Fresh page component", asyn
   assertExists(PosPage);
   assertEquals(typeof PosPage, "function");
 });
+
+Deno.test("Quick customer creation with fallback unique walk-in email", async () => {
+  // Test creation without email (auto-generates walkin_{phone}@pos.urbandevicecare.co.uk)
+  const cust1 = await service.createCustomer({
+    first_name: "Alice",
+    last_name: "Wambui",
+    phone: "+254 700 999 888",
+    company_name: "Safari Tech",
+  });
+
+  assertExists(cust1);
+  assertExists(cust1.id);
+  assertEquals(cust1.first_name, "Alice");
+  assertEquals(cust1.last_name, "Wambui");
+  assertEquals(cust1.phone, "+254 700 999 888");
+  assertEquals(cust1.company_name, "Safari Tech");
+  assertEquals(cust1.email, "walkin_254700999888@pos.urbandevicecare.co.uk");
+  assertEquals(cust1.has_account, true);
+  assertEquals(cust1.metadata?.is_pos_registered, true);
+
+  // Test creation with explicit email
+  const cust2 = await service.createCustomer({
+    first_name: "Bob",
+    last_name: "Kariuki",
+    phone: "0711223344",
+    email: "bob.k@example.com",
+  });
+  assertEquals(cust2.email, "bob.k@example.com");
+  assertEquals(cust2.has_account, true);
+
+  // Fallback email collision protection when different person shares phone
+  const sharedCust = await service.createCustomer({
+    first_name: "David",
+    last_name: "Wambui",
+    phone: "+254 700 999 888",
+  });
+  assertEquals(sharedCust.first_name, "David");
+  assertEquals(sharedCust.email, "walkin_254700999888_2@pos.urbandevicecare.co.uk");
+  assertEquals(sharedCust.has_account, true);
+
+  // Validation errors for missing required fields
+  let errorCaught = false;
+  try {
+    await service.createCustomer({ first_name: "", last_name: "Doe", phone: "123" });
+  } catch (err: any) {
+    errorCaught = true;
+    assertEquals(err.message.includes("First name is required"), true);
+  }
+  assertEquals(errorCaught, true);
+
+  // Validation errors for invalid email format
+  errorCaught = false;
+  try {
+    await service.createCustomer({ first_name: "Jane", last_name: "Doe", phone: "0711000111", email: "bademail" });
+  } catch (err: any) {
+    errorCaught = true;
+    assertEquals(err.message.includes("Invalid email format"), true);
+  }
+  assertEquals(errorCaught, true);
+});
+
+Deno.test("Customer search pipeline across live sync and mock store", async () => {
+  // Search by name
+  const nameRes = await service.searchCustomers("Alice");
+  assertEquals(nameRes.length >= 1, true);
+  assertEquals(nameRes[0].first_name, "Alice");
+
+  // Search by phone
+  const phoneRes = await service.searchCustomers("700999888");
+  assertEquals(phoneRes.length >= 1, true);
+  assertEquals(phoneRes[0].last_name, "Wambui");
+
+  // Search by company
+  const companyRes = await service.searchCustomers("Safari Tech");
+  assertEquals(companyRes.length >= 1, true);
+  assertEquals(companyRes[0].company_name, "Safari Tech");
+
+  // Non-matching query
+  const emptyRes = await service.searchCustomers("UNKNOWN_PERSON_XYZ");
+  assertEquals(emptyRes.length, 0);
+});
+
+Deno.test("POS API Routes: /api/pos/customers and legacy /api/customers", async () => {
+  // GET customer search
+  const getReq = new Request("http://localhost:8000/api/pos/customers?q=John");
+  const getRes = await posCustomersHandler(getReq);
+  assertEquals(getRes.status, 200);
+  const getData = await getRes.json();
+  assertEquals(getData.customers.length >= 1, true);
+  assertEquals(getData.customers[0].first_name, "John");
+
+  // POST quick customer creation
+  const postReq = new Request("http://localhost:8000/api/pos/customers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      first_name: "Grace",
+      last_name: "Mutua",
+      phone: "+254 733 111 222",
+      company_name: "Apex Logistics",
+    }),
+  });
+  const postRes = await posCustomersHandler(postReq);
+  assertEquals(postRes.status, 201);
+  const postData = await postRes.json();
+  assertEquals(postData.success, true);
+  assertEquals(postData.customer.first_name, "Grace");
+  assertEquals(postData.customer.email, "walkin_254733111222@pos.urbandevicecare.co.uk");
+
+  // Legacy route check
+  const legReq = new Request("http://localhost:8000/api/customers?q=Grace");
+  const legRes = await legacyCustomersHandler(legReq);
+  assertEquals(legRes.status, 200);
+  const legData = await legRes.json();
+  assertEquals(legData.customers.length >= 1, true);
+});
+
+Deno.test("POS Order Checkout with registered customer session", async () => {
+  const order = await service.createPosOrder({
+    order_number: "POS-TEST-CUST",
+    cashier: { id: "usr_01KRV9NELLY", name: "Nelly K.", email: "nelly@urbandevicecare.co.uk" },
+    customer: {
+      id: "cus_alice_wambui",
+      first_name: "Alice",
+      last_name: "Wambui",
+      email: "walkin_254700999888@pos.urbandevicecare.co.uk",
+      phone: "+254 700 999 888",
+      company_name: "Safari Tech",
+    },
+    items: [{ variant_id: "var_diag", title: "Diagnostic Service", quantity: 1, unit_price: 2000, total: 2000 }],
+    subtotal: 2000,
+    tax: 320,
+    grand_total: 2320,
+    tender: { type: "cash", tendered: 2500, change: 180 },
+  });
+
+  assertExists(order);
+  assertExists(order.customer);
+  assertEquals(order.customer_id, "cus_alice_wambui");
+  assertEquals(order.customer.first_name, "Alice");
+  assertEquals(order.metadata.customer_id, "cus_alice_wambui");
+  assertEquals(order.metadata.customer_name, "Alice Wambui");
+  assertEquals(order.metadata.customer_email, "walkin_254700999888@pos.urbandevicecare.co.uk");
+  assertEquals(order.metadata.customer_company, "Safari Tech");
+});
+
 

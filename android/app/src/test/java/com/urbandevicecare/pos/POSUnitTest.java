@@ -2,6 +2,7 @@ package com.urbandevicecare.pos;
 
 import com.urbandevicecare.pos.model.CartItem;
 import com.urbandevicecare.pos.model.Cashier;
+import com.urbandevicecare.pos.model.POSCustomer;
 import com.urbandevicecare.pos.model.ProductPart;
 import com.urbandevicecare.pos.model.ReceiptData;
 import com.urbandevicecare.pos.printer.CS30ThermalPrinter;
@@ -118,5 +119,143 @@ public class POSUnitTest {
         assertEquals("usr_01KRV9NELLY", cashier.getId());
         assertEquals("Nelly K.", cashier.getName());
         assertEquals("nelly@urbandevicecare.co.uk", cashier.getEmail());
+    }
+
+    @Test
+    public void testPOSCustomerModel() {
+        POSCustomer cust = new POSCustomer(
+                "cus_01HQ79124XYZ",
+                "Alice",
+                "Wonderland",
+                "alice@example.com",
+                "+254 700 999 888",
+                "Wonderland Dev Ltd",
+                true
+        );
+
+        assertEquals("cus_01HQ79124XYZ", cust.getId());
+        assertEquals("Alice", cust.getFirstName());
+        assertEquals("Wonderland", cust.getLastName());
+        assertEquals("Alice Wonderland", cust.getFullName());
+        assertEquals("alice@example.com", cust.getEmail());
+        assertEquals("+254 700 999 888", cust.getPhone());
+        assertEquals("Wonderland Dev Ltd", cust.getCompanyName());
+        assertTrue("Customer must have account and be registered client", cust.hasAccount());
+    }
+
+    @Test
+    public void testFallbackWalkInEmailGeneration() {
+        String phone = "+254 712 345 678";
+        String cleanPhone = phone.trim();
+        String sanitizedPhone = cleanPhone.replaceAll("[^0-9]", "");
+        String fallbackEmail = "walkin_" + sanitizedPhone + "@pos.urbandevicecare.co.uk";
+
+        assertEquals("walkin_254712345678@pos.urbandevicecare.co.uk", fallbackEmail);
+
+        POSCustomer walkinCust = new POSCustomer(
+                "cus_walkin_01",
+                "Bob",
+                "Builder",
+                fallbackEmail,
+                cleanPhone,
+                null,
+                true
+        );
+
+        assertEquals("walkin_254712345678@pos.urbandevicecare.co.uk", walkinCust.getEmail());
+        assertTrue("Walk-in customer must be registered client", walkinCust.hasAccount());
+    }
+
+    @Test
+    public void testThermalReceiptWithCustomerData() {
+        ProductPart part = new ProductPart("var_test", "Test Item", "Test Item", "SKU-T", "SKU-T", 5000.0, 2);
+        List<CartItem> cart = new ArrayList<>();
+        cart.add(new CartItem(part, 1));
+
+        ReceiptData receipt = new ReceiptData(
+                "Urban Device Care",
+                "POS-778899",
+                "Nelly K.",
+                "cs30_terminal_01",
+                cart,
+                5000.0,
+                800.0,
+                5800.0,
+                "cash",
+                6000.0,
+                200.0,
+                "https://track.urbandevicecare.co.uk/order/POS-778899",
+                "Dr. Grace Hopper",
+                "+254 722 000 111",
+                "Hopper Computing"
+        );
+
+        byte[] escPosBytes = CS30ThermalPrinter.buildEscPos58mmReceipt(receipt);
+        assertNotNull(escPosBytes);
+
+        String receiptStr = new String(escPosBytes);
+        assertTrue("Receipt must contain customer name and company", receiptStr.contains("Dr. Grace Hopper (Hopper Computing)"));
+        assertTrue("Receipt must contain customer phone", receiptStr.contains("+254 722 000 111"));
+    }
+
+    @Test
+    public void testCustomerSearchAndRegistration() {
+        List<POSCustomer> store = new ArrayList<>();
+        store.add(new POSCustomer("c1", "John", "Doe", "john@test.com", "+254700112233", "Nairobi Tech", true));
+        store.add(new POSCustomer("c2", "Jane", "Smith", "jane@test.com", "+254711445566", "Alpha Corp", true));
+
+        // Search by name
+        POSCustomer found = null;
+        String query = "jane";
+        for (POSCustomer c : store) {
+            if (c.getFullName().toLowerCase().contains(query) || (c.getPhone() != null && c.getPhone().contains(query))) {
+                found = c;
+                break;
+            }
+        }
+        assertNotNull(found);
+        assertEquals("Jane Smith", found.getFullName());
+
+        // Search by phone
+        found = null;
+        query = "700112";
+        for (POSCustomer c : store) {
+            if (c.getFullName().toLowerCase().contains(query) || (c.getPhone() != null && c.getPhone().contains(query))) {
+                found = c;
+                break;
+            }
+        }
+        assertNotNull(found);
+        assertEquals("John Doe", found.getFullName());
+
+        // Quick register a customer with optional fields omitted
+        String rawPhone = "+254 799 888 777";
+        String autoEmail = "walkin_" + rawPhone.replaceAll("[^0-9]", "") + "@pos.urbandevicecare.co.uk";
+        POSCustomer quickAdded = new POSCustomer("c3", "Sam", "Altman", autoEmail, rawPhone, null, true);
+        store.add(quickAdded);
+
+        assertEquals(3, store.size());
+        assertEquals("walkin_254799888777@pos.urbandevicecare.co.uk", quickAdded.getEmail());
+        assertTrue(quickAdded.hasAccount());
+
+        // Test collision protection: second customer with same phone number
+        String secondEmail;
+        String baseCollision = "walkin_" + rawPhone.replaceAll("[^0-9]", "") + "@pos.urbandevicecare.co.uk";
+        boolean collision = false;
+        for (POSCustomer c : store) {
+            if (c.getEmail().equalsIgnoreCase(baseCollision)) {
+                collision = true;
+                break;
+            }
+        }
+        assertTrue("Collision should be detected for duplicate phone", collision);
+        int counter = 2;
+        secondEmail = "walkin_" + rawPhone.replaceAll("[^0-9]", "") + "_" + counter + "@pos.urbandevicecare.co.uk";
+        POSCustomer secondCust = new POSCustomer("c4", "Greg", "Brockman", secondEmail, rawPhone, null, true);
+        store.add(secondCust);
+
+        assertEquals(4, store.size());
+        assertEquals("walkin_254799888777_2@pos.urbandevicecare.co.uk", secondCust.getEmail());
+        assertTrue(secondCust.hasAccount());
     }
 }

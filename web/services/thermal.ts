@@ -19,6 +19,9 @@ export interface ThermalReceiptData {
   tenderType: string;
   tendered: number;
   change: number;
+  customerName?: string;
+  customerPhone?: string;
+  customerCompany?: string;
   trackingUrl?: string;
 }
 
@@ -99,6 +102,12 @@ export class ThermalPrinterService {
     // Cashier & Terminal attribution
     this.appendString(bytes, `Cashier: ${data.cashierName} (${data.cashierId})\n`);
     this.appendString(bytes, `Terminal: ${data.terminalChannel}\n`);
+    if (data.customerName) {
+      this.appendString(bytes, `Client: ${data.customerName}${data.customerCompany ? ` (${data.customerCompany})` : ""}\n`);
+      if (data.customerPhone) {
+        this.appendString(bytes, `Phone: ${data.customerPhone}\n`);
+      }
+    }
 
     // QR Code (GS ( k) if tracking URL present
     if (data.trackingUrl) {

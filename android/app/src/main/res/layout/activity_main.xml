@@ -50,6 +50,114 @@
             android:textColor="@color/pos_text_primary" />
     </LinearLayout>
 
+    <!-- Customer Section: Selected Customer HUD or Search Bar -->
+    <LinearLayout
+        android:id="@+id/layout_selected_customer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@color/pos_surface_variant"
+        android:padding="8dp"
+        android:layout_marginBottom="8dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tv_customer_name"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Client: John Doe"
+                    android:textColor="@color/pos_text_primary"
+                    android:textStyle="bold"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Registered"
+                    android:textColor="@color/pos_success"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:background="@color/pos_surface"
+                    android:paddingHorizontal="4dp"
+                    android:paddingVertical="1dp"
+                    android:layout_marginStart="6dp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_customer_details"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Tel: +254 700 112 233"
+                android:textColor="@color/pos_text_secondary"
+                android:textSize="10sp"
+                android:layout_marginTop="2dp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_unlink_customer"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Unlink"
+            android:textSize="10sp"
+            android:backgroundTint="@color/pos_surface"
+            android:textColor="@color/pos_danger" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layout_customer_search_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <EditText
+            android:id="@+id/et_customer_search"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:hint="Search client (name, phone, company)..."
+            android:textColorHint="@color/pos_text_muted"
+            android:textColor="@color/pos_text_primary"
+            android:background="@color/pos_surface_variant"
+            android:paddingHorizontal="12dp"
+            android:textSize="12sp"
+            android:inputType="text"
+            android:imeOptions="actionSearch" />
+
+        <Button
+            android:id="@+id/btn_search_customer"
+            android:layout_width="wrap_content"
+            android:layout_height="42dp"
+            android:text="Find"
+            android:textSize="11sp"
+            android:layout_marginStart="4dp"
+            android:backgroundTint="@color/pos_surface_variant"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btn_quick_add_customer"
+            android:layout_width="wrap_content"
+            android:layout_height="42dp"
+            android:text="+ Customer"
+            android:textSize="11sp"
+            android:layout_marginStart="4dp"
+            android:backgroundTint="@color/pos_success"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+
     <!-- Scan & Search Bar -->
     <LinearLayout
         android:layout_width="match_parent"

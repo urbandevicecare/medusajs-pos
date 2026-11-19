@@ -9,6 +9,7 @@ import android.text.TextWatcher;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -19,6 +20,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.urbandevicecare.pos.model.CartItem;
 import com.urbandevicecare.pos.model.Cashier;
+import com.urbandevicecare.pos.model.POSCustomer;
 import com.urbandevicecare.pos.model.ProductPart;
 import com.urbandevicecare.pos.model.ReceiptData;
 import com.urbandevicecare.pos.printer.CS30ThermalPrinter;
@@ -46,6 +48,8 @@ public class MainActivity extends AppCompatActivity {
     private final List<ProductPart> catalog = new ArrayList<>();
     private final List<CartItem> cart = new ArrayList<>();
     private final Map<String, Cashier> pinStore = new HashMap<>();
+    private POSCustomer activeCustomer = null;
+    private final List<POSCustomer> customerList = new ArrayList<>();
 
     private CS30ThermalPrinter cs30Printer;
 
@@ -61,6 +65,13 @@ public class MainActivity extends AppCompatActivity {
     private EditText etTenderInput;
     private TextView tvChangeDue;
     private TextView tvStatusNotice;
+
+    // Customer UI
+    private LinearLayout layoutSelectedCustomer;
+    private LinearLayout layoutCustomerSearchBar;
+    private TextView tvCustomerName;
+    private TextView tvCustomerDetails;
+    private EditText etCustomerSearch;
 
     // Laser gun wedge interceptor
     private final StringBuilder wedgeBuffer = new StringBuilder();
@@ -93,6 +104,10 @@ public class MainActivity extends AppCompatActivity {
 
         activeCashier = cashierNelly;
 
+        // Customer database seeded with registered Medusa clients
+        customerList.add(new POSCustomer("cus_01HQ79124XYZ", "John", "Doe", "john.doe@example.com", "+254 700 112 233", "Nairobi Tech Ltd", true));
+        customerList.add(new POSCustomer("cus_02HQ79124ABC", "Jane", "Smith", "jane@company.co.ke", "+254 711 445 566", "Alpha Corp", true));
+
         // Workshop parts catalog
         catalog.add(new ProductPart("var_kb_a2681", "Keyboard UK Layout", "MacBook Air M2 13\" (A2681) Keyboard", "NP04011448", "NP04011448", 6500.0, 15));
         catalog.add(new ProductPart("var_bat_a2442", "OEM Battery 70Wh", "MacBook Pro 14\" (A2442) Battery", "NP04019921", "NP04019921", 12000.0, 8));
@@ -113,6 +128,37 @@ public class MainActivity extends AppCompatActivity {
         etTenderInput = findViewById(R.id.et_tender_input);
         tvChangeDue = findViewById(R.id.tv_change_due);
         tvStatusNotice = findViewById(R.id.tv_status_notice);
+
+        // Customer HUD and search bar bindings
+        layoutSelectedCustomer = findViewById(R.id.layout_selected_customer);
+        layoutCustomerSearchBar = findViewById(R.id.layout_customer_search_bar);
+        tvCustomerName = findViewById(R.id.tv_customer_name);
+        tvCustomerDetails = findViewById(R.id.tv_customer_details);
+        etCustomerSearch = findViewById(R.id.et_customer_search);
+
+        findViewById(R.id.btn_unlink_customer).setOnClickListener(v -> unlinkCustomer());
+
+        findViewById(R.id.btn_search_customer).setOnClickListener(v -> {
+            String query = etCustomerSearch.getText().toString().trim();
+            searchCustomer(query);
+        });
+
+        etCustomerSearch.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH ||
+                (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_DOWN)) {
+                String query = etCustomerSearch.getText().toString().trim();
+                searchCustomer(query);
+                return true;
+            }
+            return false;
+        });
+
+        findViewById(R.id.btn_quick_add_customer).setOnClickListener(v -> {
+            String initial = etCustomerSearch.getText().toString().trim();
+            showQuickCustomerDialog(initial);
+        });
+
+        updateCustomerUI();
 
         findViewById(R.id.btn_switch_cashier).setOnClickListener(v -> showPinSwitchDialog());
 
@@ -371,15 +417,197 @@ public class MainActivity extends AppCompatActivity {
                 "cash",
                 tendered,
                 getChangeDue(),
-                "https://track.urbandevicecare.co.uk/order/" + orderNum
+                "https://track.urbandevicecare.co.uk/order/" + orderNum,
+                activeCustomer != null ? activeCustomer.getFullName() : null,
+                activeCustomer != null ? activeCustomer.getPhone() : null,
+                activeCustomer != null ? activeCustomer.getCompanyName() : null
         );
 
         // Native CS30 thermal printer dispatch
         boolean printSuccess = cs30Printer.printReceipt(receipt);
 
+        String custNotice = (activeCustomer != null) ? " for " + activeCustomer.getFullName() : "";
         clearCart();
-        tvStatusNotice.setText("✔ Order " + orderNum + " completed! Printed: " + printSuccess);
-        Toast.makeText(this, "Order " + orderNum + " completed!", Toast.LENGTH_LONG).show();
+        unlinkCustomer();
+        tvStatusNotice.setText("✔ Order " + orderNum + " completed" + custNotice + "! Printed: " + printSuccess);
+        Toast.makeText(this, "Order " + orderNum + " completed" + custNotice + "!", Toast.LENGTH_LONG).show();
+    }
+
+    public POSCustomer getActiveCustomer() {
+        return activeCustomer;
+    }
+
+    public void setActiveCustomer(POSCustomer customer) {
+        this.activeCustomer = customer;
+        updateCustomerUI();
+    }
+
+    public List<POSCustomer> getCustomerList() {
+        return customerList;
+    }
+
+    public void selectCustomer(POSCustomer customer) {
+        setActiveCustomer(customer);
+        if (etCustomerSearch != null) {
+            etCustomerSearch.setText("");
+        }
+        if (tvStatusNotice != null) {
+            tvStatusNotice.setText("✔ Linked client: " + customer.getFullName());
+        }
+        Toast.makeText(this, "Client linked: " + customer.getFullName(), Toast.LENGTH_SHORT).show();
+    }
+
+    public void unlinkCustomer() {
+        this.activeCustomer = null;
+        updateCustomerUI();
+        if (tvStatusNotice != null) {
+            tvStatusNotice.setText("Client unlinked (Guest sale)");
+        }
+    }
+
+    private void updateCustomerUI() {
+        if (layoutSelectedCustomer == null || layoutCustomerSearchBar == null) return;
+        if (activeCustomer != null) {
+            layoutSelectedCustomer.setVisibility(View.VISIBLE);
+            layoutCustomerSearchBar.setVisibility(View.GONE);
+            String nameStr = "Client: " + activeCustomer.getFullName();
+            if (activeCustomer.getCompanyName() != null && !activeCustomer.getCompanyName().isEmpty()) {
+                nameStr += " (" + activeCustomer.getCompanyName() + ")";
+            }
+            tvCustomerName.setText(nameStr);
+            tvCustomerDetails.setText("Tel: " + (activeCustomer.getPhone() != null ? activeCustomer.getPhone() : "N/A") + " • " + activeCustomer.getEmail());
+        } else {
+            layoutSelectedCustomer.setVisibility(View.GONE);
+            layoutCustomerSearchBar.setVisibility(View.VISIBLE);
+            if (etCustomerSearch != null) etCustomerSearch.setText("");
+        }
+    }
+
+    public void searchCustomer(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            Toast.makeText(this, "Enter customer name, phone, or company", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String q = query.trim().toLowerCase(Locale.ROOT);
+        for (POSCustomer c : customerList) {
+            if ((c.getFullName().toLowerCase(Locale.ROOT).contains(q)) ||
+                (c.getPhone() != null && c.getPhone().contains(q)) ||
+                (c.getEmail() != null && c.getEmail().toLowerCase(Locale.ROOT).contains(q)) ||
+                (c.getCompanyName() != null && c.getCompanyName().toLowerCase(Locale.ROOT).contains(q))) {
+                selectCustomer(c);
+                return;
+            }
+        }
+        // Not found: prompt to quick add
+        Toast.makeText(this, "Customer not found. Opening Quick Add...", Toast.LENGTH_SHORT).show();
+        showQuickCustomerDialog(query);
+    }
+
+    public POSCustomer registerQuickCustomer(String firstName, String lastName, String phone, String email, String companyName) {
+        String cleanPhone = phone != null ? phone.trim() : "";
+        String cleanFirst = firstName != null ? firstName.trim() : "";
+        String cleanLast = lastName != null ? lastName.trim() : "";
+
+        String finalEmail;
+        if (email != null && !email.trim().isEmpty()) {
+            finalEmail = email.trim().toLowerCase(Locale.ROOT);
+        } else {
+            String sanitizedPhone = cleanPhone.replaceAll("[^0-9]", "");
+            if (sanitizedPhone.isEmpty()) {
+                sanitizedPhone = String.valueOf(System.currentTimeMillis());
+            }
+            String baseEmail = "walkin_" + sanitizedPhone + "@pos.urbandevicecare.co.uk";
+            finalEmail = baseEmail;
+
+            // Check if baseEmail already exists locally
+            for (POSCustomer existing : customerList) {
+                if (existing.getEmail() != null && existing.getEmail().equalsIgnoreCase(baseEmail)) {
+                    boolean isSame = existing.getFirstName().equalsIgnoreCase(cleanFirst) &&
+                                     existing.getLastName().equalsIgnoreCase(cleanLast);
+                    if (isSame) {
+                        selectCustomer(existing);
+                        return existing;
+                    }
+                    // Different customer sharing phone: append counter to satisfy unique constraint
+                    int counter = 2;
+                    while (isEmailTaken("walkin_" + sanitizedPhone + "_" + counter + "@pos.urbandevicecare.co.uk")) {
+                        counter++;
+                    }
+                    finalEmail = "walkin_" + sanitizedPhone + "_" + counter + "@pos.urbandevicecare.co.uk";
+                    break;
+                }
+            }
+        }
+
+        String id = "cus_" + System.currentTimeMillis();
+        POSCustomer newCustomer = new POSCustomer(
+                id,
+                cleanFirst,
+                cleanLast,
+                finalEmail,
+                cleanPhone,
+                companyName != null && !companyName.trim().isEmpty() ? companyName.trim() : null,
+                true // hasAccount: registered Medusa client
+        );
+
+        customerList.add(0, newCustomer);
+        selectCustomer(newCustomer);
+        return newCustomer;
+    }
+
+    private boolean isEmailTaken(String email) {
+        for (POSCustomer c : customerList) {
+            if (c.getEmail() != null && c.getEmail().equalsIgnoreCase(email)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void showQuickCustomerDialog(String initialInput) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_quick_customer, null);
+
+        EditText etFirst = dialogView.findViewById(R.id.et_cust_first_name);
+        EditText etLast = dialogView.findViewById(R.id.et_cust_last_name);
+        EditText etPhone = dialogView.findViewById(R.id.et_cust_phone);
+        EditText etEmail = dialogView.findViewById(R.id.et_cust_email);
+        EditText etCompany = dialogView.findViewById(R.id.et_cust_company);
+
+        if (initialInput != null && !initialInput.trim().isEmpty()) {
+            String trimmed = initialInput.trim();
+            if (trimmed.matches(".*\\d{5,}.*")) {
+                etPhone.setText(trimmed);
+            } else if (trimmed.contains("@")) {
+                etEmail.setText(trimmed);
+            } else {
+                String[] parts = trimmed.split("\\s+");
+                if (parts.length >= 2) {
+                    etFirst.setText(parts[0]);
+                    etLast.setText(parts[1]);
+                } else {
+                    etFirst.setText(trimmed);
+                }
+            }
+        }
+
+        builder.setView(dialogView);
+        builder.setPositiveButton("Save & Select", (dialog, which) -> {
+            String first = etFirst.getText().toString().trim();
+            String last = etLast.getText().toString().trim();
+            String phone = etPhone.getText().toString().trim();
+            String email = etEmail.getText().toString().trim();
+            String company = etCompany.getText().toString().trim();
+
+            if (first.isEmpty() || last.isEmpty() || phone.isEmpty()) {
+                Toast.makeText(this, "First Name, Last Name, and Phone are required", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            registerQuickCustomer(first, last, phone, email, company);
+        });
+        builder.setNegativeButton("Cancel", null);
+        builder.show();
     }
 
     private void initiatePaystackQR() {

@@ -271,3 +271,240 @@ test("scanBarcodeWorkflow: Resolves SKU, barcodes, repair tickets, and device se
   const unknownRes = await scanBarcodeWorkflow("UNKNOWN_CODE", repairIntegration);
   assert.strictEqual(unknownRes.type, "unknown");
 });
+
+// ==========================================
+// 4. quickCustomerWorkflow & Checkout with Customer Tests
+// ==========================================
+
+import {
+  createQuickCustomerWorkflow,
+  searchCustomersWorkflow,
+} from "../src/workflows/quick-customer.js";
+
+test("quickCustomerWorkflow: Creates a registered customer with unique auto-generated fallback email", async () => {
+  const customer = await createQuickCustomerWorkflow({
+    first_name: "Alice",
+    last_name: "Wambui",
+    phone: "+254 700 112 233",
+    company_name: "Safari Tech",
+  });
+
+  assert.ok(customer.id.startsWith("cus_"));
+  assert.strictEqual(customer.first_name, "Alice");
+  assert.strictEqual(customer.last_name, "Wambui");
+  assert.strictEqual(customer.phone, "+254 700 112 233");
+  assert.strictEqual(customer.company_name, "Safari Tech");
+  assert.strictEqual(customer.has_account, true); // Must be a registered client, not guest
+  assert.strictEqual(customer.email, "walkin_254700112233@pos.urbandevicecare.co.uk");
+  assert.strictEqual(customer.metadata.company_name, "Safari Tech");
+  assert.strictEqual(customer.metadata.is_pos_registered, true);
+});
+
+test("quickCustomerWorkflow: Preserves explicit email and enforces required fields", async () => {
+  const customerWithEmail = await createQuickCustomerWorkflow({
+    first_name: "Bob",
+    last_name: "Otieno",
+    phone: "0711223344",
+    email: "bob.otieno@company.com",
+  });
+  assert.strictEqual(customerWithEmail.email, "bob.otieno@company.com");
+  assert.strictEqual(customerWithEmail.has_account, true);
+
+  // Validation: Missing first_name
+  await assert.rejects(
+    async () => {
+      await createQuickCustomerWorkflow({
+        first_name: "",
+        last_name: "Otieno",
+        phone: "0711223344",
+      });
+    },
+    /First name is required/
+  );
+
+  // Validation: Missing phone
+  await assert.rejects(
+    async () => {
+      await createQuickCustomerWorkflow({
+        first_name: "Bob",
+        last_name: "Otieno",
+        phone: "",
+      });
+    },
+    /Phone number is required/
+  );
+});
+
+test("searchCustomersWorkflow: Resolves existing registered customers by name, phone, or company", async () => {
+  // Search by name
+  const nameResults = await searchCustomersWorkflow("Alice");
+  assert.ok(nameResults.length >= 1);
+  assert.strictEqual(nameResults[0].first_name, "Alice");
+
+  // Search by phone
+  const phoneResults = await searchCustomersWorkflow("700112233");
+  assert.ok(phoneResults.length >= 1);
+  assert.strictEqual(phoneResults[0].last_name, "Wambui");
+
+  // Search by company
+  const companyResults = await searchCustomersWorkflow("Safari Tech");
+  assert.ok(companyResults.length >= 1);
+  assert.strictEqual(companyResults[0].company_name, "Safari Tech");
+});
+
+test("posCheckoutWorkflow: Attaches registered customer into checkout metadata", async () => {
+  const registerService = new RegisterModuleService();
+  const repairIntegration = new RepairPluginIntegration();
+  const documentsIntegration = new DocumentsPluginIntegration();
+  const paystackIntegration = new PaystackPluginIntegration();
+
+  const checkoutInput = {
+    terminal_id: "bench_terminal_01",
+    cashier: {
+      id: "usr_01KRV9NELLY",
+      name: "Nelly K.",
+      email: "nelly@urbandevicecare.co.uk",
+    },
+    items: [
+      {
+        variant_id: "var_diag",
+        title: "Standard Workshop Diagnostic Service",
+        quantity: 1,
+        unit_price: 2000,
+      },
+    ],
+    tender: {
+      type: "cash" as const,
+      tendered: 2320,
+      change: 0,
+    },
+    customer: {
+      id: "cus_alice_wambui",
+      first_name: "Alice",
+      last_name: "Wambui",
+      email: "walkin_254700112233@pos.urbandevicecare.co.uk",
+      phone: "+254 700 112 233",
+      company_name: "Safari Tech",
+    },
+  };
+
+  const result = await posCheckoutWorkflow(checkoutInput, {
+    registerService,
+    repairIntegration,
+    documentsIntegration,
+    paystackIntegration,
+  });
+
+  assert.strictEqual(result.customer_id, "cus_alice_wambui");
+  assert.strictEqual(result.customer?.first_name, "Alice");
+  assert.strictEqual(result.metadata.customer_id, "cus_alice_wambui");
+  assert.strictEqual(result.metadata.customer_name, "Alice Wambui");
+  assert.strictEqual(result.metadata.customer_email, "walkin_254700112233@pos.urbandevicecare.co.uk");
+  assert.strictEqual(result.metadata.customer_phone, "+254 700 112 233");
+  assert.strictEqual(result.metadata.customer_company, "Safari Tech");
+});
+
+test("quickCustomerWorkflow: Generates collision-free fallback email when multiple customers share phone", async () => {
+  // Alice is already registered with +254 700 112 233 -> walkin_254700112233@pos.urbandevicecare.co.uk
+  // Now register Bob with the same shared phone number
+  const bob = await createQuickCustomerWorkflow({
+    first_name: "Bob",
+    last_name: "Wambui",
+    phone: "+254 700 112 233",
+  });
+
+  assert.strictEqual(bob.first_name, "Bob");
+  assert.strictEqual(bob.has_account, true);
+  // Email must be distinct to satisfy Medusa's unique constraint
+  assert.strictEqual(bob.email, "walkin_254700112233_2@pos.urbandevicecare.co.uk");
+
+  // Re-submitting the exact same Alice should be idempotent and return Alice
+  const aliceAgain = await createQuickCustomerWorkflow({
+    first_name: "Alice",
+    last_name: "Wambui",
+    phone: "+254 700 112 233",
+  });
+  assert.strictEqual(aliceAgain.first_name, "Alice");
+  assert.strictEqual(aliceAgain.email, "walkin_254700112233@pos.urbandevicecare.co.uk");
+});
+
+test("quickCustomerWorkflow: Rejects invalid email syntax and non-digit phone numbers", async () => {
+  // Rejects invalid email syntax
+  await assert.rejects(
+    async () => {
+      await createQuickCustomerWorkflow({
+        first_name: "Invalid",
+        last_name: "Email",
+        phone: "+254700112233",
+        email: "not-an-email",
+      });
+    },
+    /Invalid email format/
+  );
+
+  // Rejects phone with no digits/characters
+  await assert.rejects(
+    async () => {
+      await createQuickCustomerWorkflow({
+        first_name: "Invalid",
+        last_name: "Phone",
+        phone: "---+---",
+      });
+    },
+    /Phone number must contain at least one valid digit or character/
+  );
+});
+
+import { GET as adminGetCustomers, POST as adminPostCustomers } from "../src/api/admin/customers/route.js";
+
+test("adminCustomersRoute: Supports standard Medusa v2 GET and POST /admin/customers", async () => {
+  let createdStatusCode = 0;
+  let createdData: any = null;
+  const postRes = {
+    status(code: number) {
+      createdStatusCode = code;
+      return this;
+    },
+    json(data: any) {
+      createdData = data;
+      return this;
+    },
+  };
+
+  await adminPostCustomers(
+    {
+      body: {
+        first_name: "Catherine",
+        last_name: "Nduta",
+        phone: "+254 711 000 999",
+        company_name: "Nduta Enterprises",
+      },
+    },
+    postRes
+  );
+
+  assert.strictEqual(createdStatusCode, 201);
+  assert.strictEqual(createdData.customer.first_name, "Catherine");
+  assert.strictEqual(createdData.customer.has_account, true);
+  assert.strictEqual(createdData.customer.email, "walkin_254711000999@pos.urbandevicecare.co.uk");
+
+  let listStatusCode = 0;
+  let listData: any = null;
+  const getRes = {
+    status(code: number) {
+      listStatusCode = code;
+      return this;
+    },
+    json(data: any) {
+      listData = data;
+      return this;
+    },
+  };
+
+  await adminGetCustomers({ query: { q: "Catherine" } }, getRes);
+  assert.strictEqual(listStatusCode, 200);
+  assert.ok(listData.customers.length >= 1);
+  assert.strictEqual(listData.customers[0].first_name, "Catherine");
+});
+
+

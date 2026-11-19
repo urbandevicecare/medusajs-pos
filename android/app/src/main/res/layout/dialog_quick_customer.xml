@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/pos_surface"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Quick Add Customer"
+        android:textColor="@color/pos_text_primary"
+        android:textStyle="bold"
+        android:textSize="16sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Medusa v2 Registered Client (Auto-Selected)"
+        android:textColor="@color/pos_success"
+        android:textSize="11sp"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="12dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <EditText
+            android:id="@+id/et_cust_first_name"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:hint="First Name *"
+            android:textColorHint="@color/pos_text_muted"
+            android:textColor="@color/pos_text_primary"
+            android:background="@color/pos_surface_variant"
+            android:paddingHorizontal="10dp"
+            android:textSize="12sp"
+            android:inputType="textPersonName"
+            android:layout_marginEnd="4dp" />
+
+        <EditText
+            android:id="@+id/et_cust_last_name"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:hint="Last Name *"
+            android:textColorHint="@color/pos_text_muted"
+            android:textColor="@color/pos_text_primary"
+            android:background="@color/pos_surface_variant"
+            android:paddingHorizontal="10dp"
+            android:textSize="12sp"
+            android:inputType="textPersonName"
+            android:layout_marginStart="4dp" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/et_cust_phone"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:hint="Phone Number (e.g. +254 700 112 233) *"
+        android:textColorHint="@color/pos_text_muted"
+        android:textColor="@color/pos_text_primary"
+        android:background="@color/pos_surface_variant"
+        android:paddingHorizontal="10dp"
+        android:textSize="12sp"
+        android:inputType="phone"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/et_cust_email"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:hint="Email (Optional - auto-generated fallback)"
+        android:textColorHint="@color/pos_text_muted"
+        android:textColor="@color/pos_text_primary"
+        android:background="@color/pos_surface_variant"
+        android:paddingHorizontal="10dp"
+        android:textSize="12sp"
+        android:inputType="textEmailAddress"
+        android:layout_marginBottom="2dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="If omitted: walkin_{phone}@pos.urbandevicecare.co.uk"
+        android:textColor="@color/pos_text_muted"
+        android:textSize="10sp"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/et_cust_company"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:hint="Company Name (Optional)"
+        android:textColorHint="@color/pos_text_muted"
+        android:textColor="@color/pos_text_primary"
+        android:background="@color/pos_surface_variant"
+        android:paddingHorizontal="10dp"
+        android:textSize="12sp"
+        android:inputType="textCapWords" />
+
+</LinearLayout>
