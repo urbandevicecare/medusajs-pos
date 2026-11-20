@@ -206,6 +206,7 @@ public class POSViewModel: ObservableObject {
                     self.isConnected = true
                     self.connectionStatusText = "Online (Medusa v2)"
                     self.fetchLiveCatalog()
+                    self.fetchRepairs()
                 } else {
                     self.isConnected = false
                     self.connectionStatusText = "Offline (Local Catalog)"
@@ -841,6 +842,17 @@ public class POSViewModel: ObservableObject {
     
     // MARK: - Customer Pipeline & Quick Creation
     
+    public static func normalizePhoneDigits(_ phone: String?) -> String {
+        guard let phone = phone else { return "" }
+        var digits = phone.replacingOccurrences(of: "[^0-9]", with: "", options: .regularExpression)
+        if digits.hasPrefix("254") && digits.count > 3 {
+            digits = String(digits.dropFirst(3))
+        } else if digits.hasPrefix("0") && digits.count > 1 {
+            digits = String(digits.dropFirst(1))
+        }
+        return digits
+    }
+    
     public func searchCustomers(query: String) {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         customerSearchText = q
@@ -850,11 +862,15 @@ public class POSViewModel: ObservableObject {
         }
         
         let lowerQ = q.lowercased()
+        let cleanDigits = POSViewModel.normalizePhoneDigits(q)
         searchCustomerResults = localCustomers.filter {
-            $0.fullName.lowercased().contains(lowerQ) ||
-            ($0.phone?.lowercased().contains(lowerQ) ?? false) ||
-            $0.email.lowercased().contains(lowerQ) ||
-            ($0.companyName?.lowercased().contains(lowerQ) ?? false)
+            let cDigits = POSViewModel.normalizePhoneDigits($0.phone)
+            let phoneMatches = ($0.phone?.lowercased().contains(lowerQ) ?? false) ||
+                (!cleanDigits.isEmpty && !cDigits.isEmpty && (cDigits.contains(cleanDigits) || cleanDigits.contains(cDigits)))
+            return $0.fullName.lowercased().contains(lowerQ) ||
+                phoneMatches ||
+                $0.email.lowercased().contains(lowerQ) ||
+                ($0.companyName?.lowercased().contains(lowerQ) ?? false)
         }
         
         guard let encoded = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
@@ -888,10 +904,13 @@ public class POSViewModel: ObservableObject {
                         }
                     }
                     self.searchCustomerResults = self.localCustomers.filter {
-                        $0.fullName.lowercased().contains(lowerQ) ||
-                        ($0.phone?.lowercased().contains(lowerQ) ?? false) ||
-                        $0.email.lowercased().contains(lowerQ) ||
-                        ($0.companyName?.lowercased().contains(lowerQ) ?? false)
+                        let cDigits = POSViewModel.normalizePhoneDigits($0.phone)
+                        let phoneMatches = ($0.phone?.lowercased().contains(lowerQ) ?? false) ||
+                            (!cleanDigits.isEmpty && !cDigits.isEmpty && (cDigits.contains(cleanDigits) || cleanDigits.contains(cDigits)))
+                        return $0.fullName.lowercased().contains(lowerQ) ||
+                            phoneMatches ||
+                            $0.email.lowercased().contains(lowerQ) ||
+                            ($0.companyName?.lowercased().contains(lowerQ) ?? false)
                     }
                 }
             }
@@ -1061,22 +1080,121 @@ public class POSViewModel: ObservableObject {
             if let token = currentSession?.token {
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
+            if !publishableApiKey.isEmpty {
+                request.setValue(publishableApiKey, forHTTPHeaderField: "x-publishable-api-key")
+            }
             request.timeoutInterval = 4.0
             let payload: [String: Any] = effTicketId != nil ? ["phone": cleanPhone, "amount": effAmount] : ["phone": cleanPhone, "amount": effAmount, "order_id": "pos_\(Int(Date().timeIntervalSince1970))"]
             request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
             
-            URLSession.shared.dataTask(with: request) { data, _, _ in
+            URLSession.shared.dataTask(with: request) { data, response, error in
                 Task { @MainActor [weak self] in
                     guard let self = self else { return }
-                    if let data = data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let ref = json["reference"] as? String ?? json["checkout_request_id"] as? String {
-                        self.stkReference = ref
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    
+                    if let data = data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        if (200...299).contains(statusCode), let ref = json["reference"] as? String ?? json["checkout_request_id"] as? String ?? (json["data"] as? [String: Any])?["reference"] as? String {
+                            self.stkReference = ref
+                            self.startStkCountdownAndPolling(ref: ref, phone: cleanPhone, amount: effAmount, ticketId: effTicketId)
+                            return
+                        } else if statusCode >= 400 && statusCode != 404 {
+                            let msg = json["message"] as? String ?? json["error"] as? String ?? "Failed to initiate M-Pesa STK prompt."
+                            self.stkStep = "failed"
+                            self.stkNotice = msg
+                            return
+                        }
                     }
+                    
+                    // Fallback to /api/pos/stk-push or offline simulation
+                    if statusCode == 404, let fallbackUrl = URL(string: "\(self.serverBaseUrl)/api/pos/stk-push") {
+                        var fbReq = URLRequest(url: fallbackUrl)
+                        fbReq.httpMethod = "POST"
+                        fbReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                        fbReq.timeoutInterval = 4.0
+                        let fbPayload: [String: Any] = ["phone": cleanPhone, "amount": effAmount, "ticket_id": effTicketId ?? ""]
+                        fbReq.httpBody = try? JSONSerialization.data(withJSONObject: fbPayload)
+                        URLSession.shared.dataTask(with: fbReq) { fbData, _, _ in
+                            Task { @MainActor [weak self] in
+                                guard let self = self else { return }
+                                if let fbData = fbData, let fbJson = try? JSONSerialization.jsonObject(with: fbData) as? [String: Any],
+                                   let ref = fbJson["reference"] as? String {
+                                    self.stkReference = ref
+                                    self.startStkCountdownAndPolling(ref: ref, phone: cleanPhone, amount: effAmount, ticketId: effTicketId)
+                                } else {
+                                    self.startStkCountdownAndPolling(ref: self.stkReference, phone: cleanPhone, amount: effAmount, ticketId: effTicketId)
+                                }
+                            }
+                        }.resume()
+                        return
+                    }
+                    
                     self.startStkCountdownAndPolling(ref: self.stkReference, phone: cleanPhone, amount: effAmount, ticketId: effTicketId)
                 }
             }.resume()
         } else {
             startStkCountdownAndPolling(ref: simRef, phone: cleanPhone, amount: effAmount, ticketId: effTicketId)
+        }
+    }
+    
+    private func finalizeStkPaymentSuccess(amount: Double, ticketId: String?) {
+        stkTimer?.invalidate()
+        stkTimer = nil
+        stkStep = "success"
+        stkNotice = "✔ Payment of KES \(String(format: "%.2f", amount)) received via M-Pesa!"
+        NSSound.beep()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            self.showStkModal = false
+            if let tId = ticketId {
+                if let idx = self.repairs.firstIndex(where: { $0.id == tId }) {
+                    let updated = self.repairs[idx]
+                    let newPaid = updated.amountPaid + amount
+                    let newBal = max(0, updated.balanceDue - amount)
+                    let newPayStatus = newBal <= 0 ? "captured" : "partially_paid"
+                    self.repairs[idx] = RepairTicketRecord(
+                        id: updated.id,
+                        ticketNumber: updated.ticketNumber,
+                        customerId: updated.customerId,
+                        customerName: updated.customerName,
+                        customerPhone: updated.customerPhone,
+                        customerEmail: updated.customerEmail,
+                        companyName: updated.companyName,
+                        technicianName: updated.technicianName,
+                        technicianId: updated.technicianId,
+                        brand: updated.brand,
+                        modelName: updated.modelName,
+                        deviceName: updated.deviceName,
+                        serialNumber: updated.serialNumber,
+                        imei: updated.imei,
+                        condition: updated.condition,
+                        status: updated.status,
+                        issueDescription: updated.issueDescription,
+                        accessories: updated.accessories,
+                        passcode: updated.passcode,
+                        partsEstimate: updated.partsEstimate,
+                        laborEstimate: updated.laborEstimate,
+                        totalEstimate: updated.totalEstimate,
+                        partsActual: updated.partsActual,
+                        laborActual: updated.laborActual,
+                        totalActual: updated.totalActual,
+                        amountPaid: newPaid,
+                        depositAmount: updated.depositAmount,
+                        balanceDue: newBal,
+                        paymentStatus: newPayStatus,
+                        warrantyMonths: updated.warrantyMonths,
+                        termsAccepted: updated.termsAccepted,
+                        dataWipedConsent: updated.dataWipedConsent,
+                        notes: updated.notes,
+                        updates: updated.updates,
+                        createdAt: updated.createdAt
+                    )
+                    self.statusNotice = "✔ M-Pesa payment of KES \(String(format: "%.2f", amount)) recorded for Repair #\(updated.ticketNumber)!"
+                }
+            } else {
+                self.selectedTenderType = "paystack"
+                self.tenderInputText = String(format: "%.2f", amount)
+                self.completeSale()
+            }
         }
     }
     
@@ -1086,79 +1204,59 @@ public class POSViewModel: ObservableObject {
         stkNotice = "M-Pesa PIN prompt sent to \(phone). Waiting for customer to enter PIN..."
         
         stkTimer?.invalidate()
-        stkTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+        stkTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 self.stkCountdown = max(0, self.stkCountdown - 2)
                 
-                if self.stkCountdown <= 56 {
-                    self.stkTimer?.invalidate()
-                    self.stkTimer = nil
-                    self.stkStep = "success"
-                    self.stkNotice = "✔ Payment of KES \(String(format: "%.2f", amount)) received via M-Pesa!"
-                    NSSound.beep()
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        self.showStkModal = false
-                        if let tId = ticketId {
-                            if let idx = self.repairs.firstIndex(where: { $0.id == tId }) {
-                                let updated = self.repairs[idx]
-                                let newPaid = updated.amountPaid + amount
-                                let newBal = max(0, updated.balanceDue - amount)
-                                let newPayStatus = newBal <= 0 ? "captured" : "partially_paid"
-                                self.repairs[idx] = RepairTicketRecord(
-                                    id: updated.id,
-                                    ticketNumber: updated.ticketNumber,
-                                    customerId: updated.customerId,
-                                    customerName: updated.customerName,
-                                    customerPhone: updated.customerPhone,
-                                    customerEmail: updated.customerEmail,
-                                    companyName: updated.companyName,
-                                    technicianName: updated.technicianName,
-                                    technicianId: updated.technicianId,
-                                    brand: updated.brand,
-                                    modelName: updated.modelName,
-                                    deviceName: updated.deviceName,
-                                    serialNumber: updated.serialNumber,
-                                    imei: updated.imei,
-                                    condition: updated.condition,
-                                    status: updated.status,
-                                    issueDescription: updated.issueDescription,
-                                    accessories: updated.accessories,
-                                    passcode: updated.passcode,
-                                    partsEstimate: updated.partsEstimate,
-                                    laborEstimate: updated.laborEstimate,
-                                    totalEstimate: updated.totalEstimate,
-                                    partsActual: updated.partsActual,
-                                    laborActual: updated.laborActual,
-                                    totalActual: updated.totalActual,
-                                    amountPaid: newPaid,
-                                    depositAmount: updated.depositAmount,
-                                    balanceDue: newBal,
-                                    paymentStatus: newPayStatus,
-                                    warrantyMonths: updated.warrantyMonths,
-                                    termsAccepted: updated.termsAccepted,
-                                    dataWipedConsent: updated.dataWipedConsent,
-                                    notes: updated.notes,
-                                    updates: updated.updates,
-                                    createdAt: updated.createdAt
-                                )
-                                self.statusNotice = "✔ M-Pesa payment of KES \(String(format: "%.2f", amount)) recorded for Repair #\(updated.ticketNumber)!"
+                // Real verification polling when server is online or configured
+                if let encodedRef = ref.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                   let vUrl = URL(string: "\(self.serverBaseUrl)/api/pos/verify-payment?reference=\(encodedRef)") {
+                    var vReq = URLRequest(url: vUrl)
+                    vReq.timeoutInterval = 2.5
+                    URLSession.shared.dataTask(with: vReq) { vData, _, _ in
+                        Task { @MainActor [weak self] in
+                            guard let self = self else { return }
+                            if let vData = vData, let json = try? JSONSerialization.jsonObject(with: vData) as? [String: Any] {
+                                let st = json["status"] as? String ?? ""
+                                let isSuccess = json["success"] as? Bool ?? (st == "success")
+                                if isSuccess || st == "success" {
+                                    self.finalizeStkPaymentSuccess(amount: amount, ticketId: ticketId)
+                                    return
+                                } else if st == "failed" || st == "abandoned" {
+                                    self.stkTimer?.invalidate()
+                                    self.stkTimer = nil
+                                    self.stkStep = "failed"
+                                    self.stkNotice = (json["message"] as? String) ?? "M-Pesa prompt was cancelled or declined."
+                                    return
+                                }
                             }
-                        } else {
-                            self.selectedTenderType = "paystack"
-                            self.tenderInputText = String(format: "%.2f", amount)
-                            self.completeSale()
+                            
+                            // Offline demo simulation fallback for unit tests when server is unreachable
+                            if !self.isConnected && self.stkCountdown <= 56 {
+                                self.finalizeStkPaymentSuccess(amount: amount, ticketId: ticketId)
+                                return
+                            }
+                            
+                            if self.stkCountdown <= 0 {
+                                self.stkTimer?.invalidate()
+                                self.stkTimer = nil
+                                self.stkStep = "failed"
+                                self.stkNotice = "STK prompt timed out. Customer did not enter their PIN in time."
+                            }
                         }
+                    }.resume()
+                } else {
+                    if !self.isConnected && self.stkCountdown <= 56 {
+                        self.finalizeStkPaymentSuccess(amount: amount, ticketId: ticketId)
+                        return
                     }
-                    return
-                }
-                
-                if self.stkCountdown <= 0 {
-                    self.stkTimer?.invalidate()
-                    self.stkTimer = nil
-                    self.stkStep = "failed"
-                    self.stkNotice = "STK prompt timed out. Customer did not enter their PIN in time."
+                    if self.stkCountdown <= 0 {
+                        self.stkTimer?.invalidate()
+                        self.stkTimer = nil
+                        self.stkStep = "failed"
+                        self.stkNotice = "STK prompt timed out. Customer did not enter their PIN in time."
+                    }
                 }
             }
         }

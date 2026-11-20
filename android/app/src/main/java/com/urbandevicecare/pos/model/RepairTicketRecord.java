@@ -167,6 +167,7 @@ public class RepairTicketRecord {
     public String getPasscode() { return passcode; }
     public double getTotalEstimate() { return totalEstimate; }
     public double getDepositAmount() { return depositAmount; }
+    public double getAmountPaid() { return depositAmount; }
     public double getBalanceDue() { return balanceDue; }
     public String getPaymentStatus() { return paymentStatus; }
     public boolean isTermsAccepted() { return termsAccepted; }

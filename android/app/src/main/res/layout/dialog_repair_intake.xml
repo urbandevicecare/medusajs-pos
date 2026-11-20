@@ -176,6 +176,16 @@
             android:textSize="11sp"
             android:layout_marginBottom="6dp" />
 
+        <Button
+            android:id="@+id/btn_intake_select_catalog_part"
+            android:layout_width="match_parent"
+            android:layout_height="36dp"
+            android:text="Select Part from Live Catalog"
+            android:textColor="@color/pos_accent"
+            android:background="@color/pos_surface_variant"
+            android:textSize="11sp"
+            android:layout_marginBottom="6dp" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

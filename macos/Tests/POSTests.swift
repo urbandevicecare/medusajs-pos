@@ -338,6 +338,11 @@ struct POSTests {
         assert(!vm.searchCustomerResults.isEmpty, "Search for 'John' should find at least 1 customer")
         assert(vm.searchCustomerResults[0].firstName == "John", "Search result must be John Doe")
         
+        // 1b. Search customer by normalized phone digits (local format 07... matching +254...)
+        vm.searchCustomers(query: "0712345678")
+        assert(!vm.searchCustomerResults.isEmpty, "Search for '0712345678' should find John Doe (+254712345678) by phone")
+        assert(vm.searchCustomerResults[0].firstName == "John", "Phone search result must be John Doe")
+        
         // 2. Select customer
         vm.selectCustomer(vm.searchCustomerResults[0])
         assert(vm.selectedCustomer?.firstName == "John", "Customer should be selected")

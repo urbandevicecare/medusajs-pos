@@ -247,24 +247,12 @@
 
                 <Button
                     android:id="@+id/btn_detail_close"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="40dp"
-                    android:layout_weight="1"
                     android:text="Close"
                     android:textSize="11sp"
                     android:backgroundTint="@color/pos_surface_variant"
-                    android:textColor="@color/pos_text_primary"
-                    android:layout_marginEnd="6dp" />
-
-                <Button
-                    android:id="@+id/btn_detail_tender_cart"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_weight="1.4"
-                    android:text="Tender to Cart"
-                    android:textSize="11sp"
-                    android:backgroundTint="@color/pos_accent"
-                    android:textColor="#FFFFFF" />
+                    android:textColor="@color/pos_text_primary" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

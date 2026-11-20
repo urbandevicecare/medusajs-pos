@@ -1612,6 +1612,7 @@ public struct RepairIntakeSheet: View {
     @State private var accessories: String = ""
     @State private var estimateText: String = ""
     @State private var depositText: String = ""
+    @State private var selectedPartId: String = ""
     @State private var termsAccepted: Bool = true
     @State private var dataWipedConsent: Bool = true
     @State private var errorMessage: String? = nil
@@ -1660,92 +1661,118 @@ public struct RepairIntakeSheet: View {
                         .cornerRadius(4)
                 }
                 
-                // Client Section
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("CUSTOMER DETAILS").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Name *").font(.system(size: 9)).foregroundColor(.secondary)
-                            TextField("Customer Name", text: $customerName)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .font(.system(size: 11))
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Phone *").font(.system(size: 9)).foregroundColor(.secondary)
-                            TextField("+254 700 000 000", text: $customerPhone)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .font(.system(size: 11))
-                        }
-                    }
-                }
-                
-                // Device Section
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("DEVICE DETAILS").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Brand *").font(.system(size: 9)).foregroundColor(.secondary)
-                            TextField("e.g. Apple", text: $deviceBrand)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .font(.system(size: 11))
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Model *").font(.system(size: 9)).foregroundColor(.secondary)
-                            TextField("e.g. MacBook Pro 16-inch (A2485)", text: $deviceModel)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .font(.system(size: 11))
+                Group {
+                    // Client Section
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("CUSTOMER DETAILS").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Name *").font(.system(size: 9)).foregroundColor(.secondary)
+                                TextField("Customer Name", text: $customerName)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 11))
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Phone *").font(.system(size: 9)).foregroundColor(.secondary)
+                                TextField("+254 700 000 000", text: $customerPhone)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 11))
+                            }
                         }
                     }
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Serial #").font(.system(size: 9)).foregroundColor(.secondary)
-                            TextField("C02G...", text: $deviceSerial)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .font(.system(size: 11, design: .monospaced))
+                    
+                    // Device Section
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("DEVICE DETAILS").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Brand *").font(.system(size: 9)).foregroundColor(.secondary)
+                                TextField("e.g. Apple", text: $deviceBrand)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 11))
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Model *").font(.system(size: 9)).foregroundColor(.secondary)
+                                TextField("e.g. MacBook Pro 16-inch (A2485)", text: $deviceModel)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 11))
+                            }
                         }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("IMEI").font(.system(size: 9)).foregroundColor(.secondary)
-                            TextField("3589...", text: $imei)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .font(.system(size: 11, design: .monospaced))
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Serial #").font(.system(size: 9)).foregroundColor(.secondary)
+                                TextField("C02G...", text: $deviceSerial)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 11, design: .monospaced))
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("IMEI").font(.system(size: 9)).foregroundColor(.secondary)
+                                TextField("3589...", text: $imei)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 11, design: .monospaced))
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Condition").font(.system(size: 9)).foregroundColor(.secondary)
+                                TextField("e.g. Good, Minor Scratches", text: $condition)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 11))
+                            }
                         }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Condition").font(.system(size: 9)).foregroundColor(.secondary)
-                            TextField("e.g. Good, Minor Scratches", text: $condition)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .font(.system(size: 11))
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Passcode / PIN").font(.system(size: 9)).foregroundColor(.secondary)
+                                TextField("e.g. 1234 or Pattern", text: $passcode)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 11))
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Assigned Technician").font(.system(size: 9)).foregroundColor(.secondary)
+                                TextField("Technician Name", text: $technicianName)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                                    .font(.system(size: 11))
+                            }
                         }
                     }
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Passcode / PIN").font(.system(size: 9)).foregroundColor(.secondary)
-                            TextField("e.g. 1234 or Pattern", text: $passcode)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .font(.system(size: 11))
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Assigned Technician").font(.system(size: 9)).foregroundColor(.secondary)
-                            TextField("Technician Name", text: $technicianName)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .font(.system(size: 11))
-                        }
+                    
+                    // Fault Description
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Reported Issue / Fault Description *").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                        TextField("Describe symptoms, liquid spill, drops, damaged components...", text: $issueDescription)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .font(.system(size: 11))
                     }
-                }
-                
-                // Fault Description
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Reported Issue / Fault Description *").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
-                    TextField("Describe symptoms, liquid spill, drops, damaged components...", text: $issueDescription)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                    
+                    // Accessories Left
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Accessories Left with Device").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                        TextField("e.g. Charger, Case, Dongle, Box", text: $accessories)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .font(.system(size: 11))
+                    }
+                    
+                    // Live Catalog Part Selection
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Required Part (Live Medusa Catalog)").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(viewModel.catalog.count) live parts").font(.system(size: 9)).foregroundColor(.secondary)
+                        }
+                        Picker("", selection: $selectedPartId) {
+                            Text("-- No part / Diagnostic service only --").tag("")
+                            ForEach(viewModel.catalog) { part in
+                                Text("\(part.title) - KES \(String(format: "%.2f", part.price)) (Stock: \(part.inventoryQuantity))").tag(part.id)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
                         .font(.system(size: 11))
-                }
-                
-                // Accessories Left
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Accessories Left with Device").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
-                    TextField("e.g. Charger, Case, Dongle, Box", text: $accessories)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .font(.system(size: 11))
+                        .onChange(of: selectedPartId) { newId in
+                            if let chosen = viewModel.catalog.first(where: { $0.id == newId }) {
+                                estimateText = String(format: "%.2f", chosen.price + 2000.0)
+                            } else {
+                                estimateText = "2000.00"
+                            }
+                        }
+                    }
                 }
                 
                 // Financials
@@ -2101,11 +2128,6 @@ public struct RepairDetailsSheet: View {
                                 .cornerRadius(5)
                             }
                             .buttonStyle(PlainButtonStyle())
-                            
-                            MinimalButton(title: "Tender Cash to Cart", isPrimary: true) {
-                                viewModel.tenderRepairBalance(ticket: ticket)
-                                viewModel.selectedRepair = nil
-                            }
                         } else {
                             Button(action: {}) {
                                 HStack(spacing: 5) {

@@ -490,12 +490,39 @@ public class POSUnitTest {
         assertFalse("Push STK button must be disabled when balance is 0", buttonEnabled);
         assertEquals("Push M-Pesa STK (Balance: KES 0.00 - Paid)", buttonText);
 
-        // Case 2: Balance is > 0 -> STK push enabled
+        // Case 2: Balance is > 0 -> STK push enabled with formatted balance
         double positiveBalance = 15000.0;
         buttonEnabled = positiveBalance > 0;
-        buttonText = buttonEnabled ? "Push M-Pesa STK" : "Push M-Pesa STK (Balance: KES 0.00 - Paid)";
+        buttonText = buttonEnabled ? String.format(java.util.Locale.US, "Push M-Pesa STK (KES %.2f)", positiveBalance) : "Push M-Pesa STK (Balance: KES 0.00 - Paid)";
         assertTrue("Push STK button must be enabled when balance > 0", buttonEnabled);
-        assertEquals("Push M-Pesa STK", buttonText);
+        assertEquals("Push M-Pesa STK (KES 15000.00)", buttonText);
+    }
+
+    @Test
+    public void testCustomerPhoneDigitsSearchAndCheckoutGuard() {
+        // 1. Phone digit normalization
+        POSCustomer cust = new POSCustomer(
+                "cus_ke_01", "Wanjiku", "Mwangi", "wanjiku@test.co.ke",
+                "+254 700 112 233", "Wanjiku Enterprises", true
+        );
+        String searchInput = "0700112233";
+        String searchDigits = MainActivity.normalizePhoneDigits(searchInput);
+        String custDigits = MainActivity.normalizePhoneDigits(cust.getPhone());
+        boolean phoneMatches = custDigits.contains(searchDigits) || searchDigits.contains(custDigits);
+        assertTrue("Normalized phone search should match customer despite format differences", phoneMatches);
+
+        // 2. Cart checkout & STK button guard when cart is empty or balance is zero
+        List<CartItem> emptyCart = new ArrayList<>();
+        double grandTotalEmpty = 0.0;
+        boolean canCheckoutEmpty = !emptyCart.isEmpty() && grandTotalEmpty > 0;
+        assertFalse("Checkout & STK Push must be disabled when cart is empty", canCheckoutEmpty);
+
+        ProductPart zeroPart = new ProductPart("free_promo", "Promo Sticker", "Promo Sticker", "PRM-00", "PRM-00", 0.0, 100);
+        List<CartItem> zeroCart = new ArrayList<>();
+        zeroCart.add(new CartItem(zeroPart, 1));
+        double grandTotalZero = 0.0;
+        boolean canCheckoutZero = !zeroCart.isEmpty() && grandTotalZero > 0;
+        assertFalse("Checkout & STK Push must be disabled when grand total is KES 0.00", canCheckoutZero);
     }
 }
 

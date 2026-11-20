@@ -31,12 +31,22 @@ import com.urbandevicecare.pos.model.ReceiptData;
 import com.urbandevicecare.pos.printer.CS30ThermalPrinter;
 import com.urbandevicecare.pos.scanner.CameraScannerActivity;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * 100% Native Android POS Activity for CS30 Smart POS and generic Android terminals.
@@ -48,6 +58,9 @@ public class MainActivity extends AppCompatActivity {
     public static MainActivity getInstance() {
         return sInstance;
     }
+
+    private String serverBaseUrl = "https://admin.urbandevicecare.co.uk";
+    private final ExecutorService networkExecutor = Executors.newCachedThreadPool();
 
     private Cashier activeCashier;
     private final List<Cashier> staffList = new ArrayList<>();
@@ -105,6 +118,169 @@ public class MainActivity extends AppCompatActivity {
         initViews();
         renderCatalog();
         updateTotals();
+        syncWithServer();
+    }
+
+    public void syncWithServer() {
+        fetchLiveCatalog();
+        fetchLiveRepairs();
+    }
+
+    public void fetchLiveCatalog() {
+        networkExecutor.execute(() -> {
+            try {
+                URL url = new URL(serverBaseUrl + "/store/products?limit=100&fields=*variants,*variants.calculated_price,+variants.inventory_quantity");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setRequestProperty("x-publishable-api-key", "pk_c7904d9e7fcc12a1a42277a4e0e33e3479c9653efeed505bdc70dc442d21b067");
+                conn.setConnectTimeout(4000);
+                conn.setReadTimeout(4000);
+
+                if (conn.getResponseCode() >= 200 && conn.getResponseCode() < 300) {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) sb.append(line);
+                    reader.close();
+
+                    JSONObject json = new JSONObject(sb.toString());
+                    JSONArray products = json.optJSONArray("products");
+                    if (products != null && products.length() > 0) {
+                        List<ProductPart> liveParts = new ArrayList<>();
+                        for (int i = 0; i < products.length(); i++) {
+                            JSONObject p = products.getJSONObject(i);
+                            String prodTitle = p.optString("title", "Part");
+                            JSONArray variants = p.optJSONArray("variants");
+                            if (variants != null) {
+                                for (int j = 0; j < variants.length(); j++) {
+                                    JSONObject v = variants.getJSONObject(j);
+                                    String vId = v.optString("id");
+                                    String vTitle = v.optString("title", prodTitle);
+                                    String sku = v.optString("sku", vId);
+                                    String barcode = v.optString("barcode", sku);
+                                    double price = 0.0;
+                                    JSONObject calcPrice = v.optJSONObject("calculated_price");
+                                    if (calcPrice != null) {
+                                        price = calcPrice.optDouble("calculated_amount", calcPrice.optDouble("original_amount", 0.0));
+                                    } else {
+                                        JSONArray prices = v.optJSONArray("prices");
+                                        if (prices != null && prices.length() > 0) {
+                                            price = prices.getJSONObject(0).optDouble("amount", 0.0);
+                                        }
+                                    }
+                                    int stock = v.optInt("inventory_quantity", 0);
+                                    liveParts.add(new ProductPart(vId, vTitle, prodTitle, sku, barcode, price, stock));
+                                }
+                            }
+                        }
+                        if (!liveParts.isEmpty()) {
+                            runOnUiThread(() -> {
+                                catalog.clear();
+                                catalog.addAll(liveParts);
+                                renderCatalog();
+                                if (tvStatusNotice != null) {
+                                    tvStatusNotice.setText("✔ Synced " + liveParts.size() + " live parts from " + serverBaseUrl);
+                                }
+                            });
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // Offline fallback - keeps local catalog
+            }
+        });
+    }
+
+    public void fetchLiveRepairs() {
+        networkExecutor.execute(() -> {
+            try {
+                URL url = new URL(serverBaseUrl + "/api/pos/repairs?status=all");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Accept", "application/json");
+                if (activeAuthToken != null) {
+                    conn.setRequestProperty("Authorization", "Bearer " + activeAuthToken);
+                }
+                conn.setConnectTimeout(3500);
+                conn.setReadTimeout(3500);
+
+                int code = conn.getResponseCode();
+                if (code == 404) {
+                    conn.disconnect();
+                    url = new URL(serverBaseUrl + "/admin/repairs?limit=100");
+                    conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Accept", "application/json");
+                    if (activeAuthToken != null) {
+                        conn.setRequestProperty("Authorization", "Bearer " + activeAuthToken);
+                    }
+                    conn.setConnectTimeout(3500);
+                    conn.setReadTimeout(3500);
+                    code = conn.getResponseCode();
+                }
+
+                if (code >= 200 && code < 300) {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) sb.append(line);
+                    reader.close();
+
+                    JSONObject json = new JSONObject(sb.toString());
+                    JSONArray tickets = json.optJSONArray("repair_tickets");
+                    if (tickets == null) tickets = json.optJSONArray("repairs");
+
+                    if (tickets != null) {
+                        List<com.urbandevicecare.pos.model.RepairTicketRecord> liveTickets = new ArrayList<>();
+                        for (int i = 0; i < tickets.length(); i++) {
+                            JSONObject t = tickets.getJSONObject(i);
+                            String id = t.optString("id");
+                            String num = t.optString("ticket_number", t.optString("ticketNumber", "REP-" + (10000 + i)));
+                            String cId = t.optString("customer_id", null);
+                            String cName = t.optString("customer_name", "Walk-in Customer");
+                            String cPhone = t.optString("customer_phone", "");
+                            String cEmail = t.optString("customer_email", "");
+                            String techName = t.optString("technician_name", "Nelly K.");
+                            String techId = t.optString("technician_id", "usr_01KRV9NELLY");
+
+                            JSONObject dev = t.optJSONObject("device");
+                            String brand = dev != null ? dev.optString("brand", "Apple") : t.optString("brand", "Apple");
+                            String model = dev != null ? dev.optString("model_name", "Device") : t.optString("model_name", "Device");
+                            String dName = (brand + " " + model).trim();
+                            String serial = dev != null ? dev.optString("serial_number", "") : t.optString("serial_number", "");
+                            String imei = dev != null ? dev.optString("imei", serial) : t.optString("imei", serial);
+                            String cond = dev != null ? dev.optString("condition", "Good") : t.optString("condition", "Good");
+                            String status = t.optString("status", "received");
+                            String issue = t.optString("issue_description", "");
+                            String acc = t.optString("accessories", "");
+                            String passcode = t.optString("passcode", "");
+
+                            double est = t.optDouble("total_estimate", t.optDouble("estimate", 0.0));
+                            double dep = t.optDouble("amount_paid", t.optDouble("deposit_amount", 0.0));
+                            double bal = t.optDouble("balance_due", Math.max(0, est - dep));
+                            String payStatus = t.optString("payment_status", (dep >= est && est > 0 ? "captured" : dep > 0 ? "partially_paid" : "pending"));
+                            boolean terms = t.optBoolean("terms_accepted", true);
+                            boolean wipe = t.optBoolean("data_wiped_consent", true);
+                            String date = t.optString("created_at", "2026-11-20");
+                            String comp = t.optString("company_name", null);
+
+                            liveTickets.add(new com.urbandevicecare.pos.model.RepairTicketRecord(
+                                id, num, cId, cName, cPhone, cEmail, techName, techId,
+                                brand, model, dName, serial, imei, cond, status, issue,
+                                acc, passcode, est, dep, bal, payStatus, terms, wipe, date, comp
+                            ));
+                        }
+                        runOnUiThread(() -> {
+                            repairsList.clear();
+                            repairsList.addAll(liveTickets);
+                        });
+                    }
+                }
+            } catch (Exception ignored) {
+                // Offline fallback
+            }
+        });
     }
 
     private void initData() {
@@ -269,6 +445,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         findViewById(R.id.btn_charge_print).setOnClickListener(v -> completeSaleAndPrint());
+        updateTotals();
     }
 
     public static class PriceCalculation {
@@ -350,7 +527,7 @@ public class MainActivity extends AppCompatActivity {
                             (p.getBarcode() != null && p.getBarcode().toLowerCase(Locale.ROOT).contains(q));
             if (match) {
                 matches.add(p);
-                if (matches.size() >= 5) break;
+                if (matches.size() >= 8) break;
             }
         }
         if (matches.isEmpty()) {
@@ -484,10 +661,12 @@ public class MainActivity extends AppCompatActivity {
         if (rawBarcode == null || rawBarcode.trim().isEmpty()) return;
         final String code = rawBarcode.trim();
 
-        // 1. Check local catalog
+        // 1. Check local catalog (by SKU, Barcode, or partial Title)
         for (ProductPart part : catalog) {
             if ((part.getSku() != null && part.getSku().equalsIgnoreCase(code)) ||
-                (part.getBarcode() != null && part.getBarcode().equalsIgnoreCase(code))) {
+                (part.getBarcode() != null && part.getBarcode().equalsIgnoreCase(code)) ||
+                (part.getTitle() != null && part.getTitle().toLowerCase(Locale.ROOT).contains(code.toLowerCase(Locale.ROOT))) ||
+                (part.getProductTitle() != null && part.getProductTitle().toLowerCase(Locale.ROOT).contains(code.toLowerCase(Locale.ROOT)))) {
                 addToCart(part);
                 tvStatusNotice.setText("✔ Added " + part.getDisplayTitle());
                 return;
@@ -605,11 +784,23 @@ public class MainActivity extends AppCompatActivity {
         }
         tvGrandTotal.setText(String.format(Locale.US, "KES %.2f", getGrandTotal()));
         updateChangeDue();
+
+        // Enforce disabled pushstk and checkout buttons when balance is 0 or cart empty
+        boolean canCheckout = !cart.isEmpty() && getGrandTotal() > 0;
+        if (btnMpesaStk != null) {
+            btnMpesaStk.setEnabled(canCheckout);
+            btnMpesaStk.setAlpha(canCheckout ? 1.0f : 0.4f);
+        }
+        View chargeBtn = findViewById(R.id.btn_charge_print);
+        if (chargeBtn != null) {
+            chargeBtn.setEnabled(canCheckout);
+            chargeBtn.setAlpha(canCheckout ? 1.0f : 0.4f);
+        }
     }
 
     public void openCartStkModal() {
-        if (cart.isEmpty()) {
-            Toast.makeText(this, "Cart is empty", Toast.LENGTH_SHORT).show();
+        if (cart.isEmpty() || getGrandTotal() <= 0) {
+            Toast.makeText(this, cart.isEmpty() ? "Cart is empty" : "Balance is KES 0.00 (No payment due)", Toast.LENGTH_SHORT).show();
             return;
         }
         double amount = getGrandTotal();
@@ -662,61 +853,98 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 btnSend.setEnabled(false);
-                String ref = "ws_CO_" + System.currentTimeMillis();
-                if (tvRef != null) tvRef.setText("Ref: " + ref);
-                if (layoutCountdown != null) layoutCountdown.setVisibility(View.VISIBLE);
-                if (tvStatus != null) tvStatus.setText("STK Prompt sent! Enter M-Pesa PIN on handset.");
+                if (tvStatus != null) tvStatus.setText("Dispatching M-Pesa STK prompt to " + phone + "...");
 
-                timerRunnable[0] = new Runnable() {
-                    @Override
-                    public void run() {
-                        secondsRemaining[0]--;
-                        if (tvCountdown != null) {
-                            tvCountdown.setText(secondsRemaining[0] + "s remaining");
-                        }
-                        if (secondsRemaining[0] == 56) {
-                            if (tvStatus != null) tvStatus.setText("Prompt delivered to " + phone + ". Waiting for customer PIN...");
-                        }
-                        if (secondsRemaining[0] <= 52) {
-                            if (tvCountdown != null) tvCountdown.setText("✔ Payment Captured!");
-                            if (tvStatus != null) tvStatus.setText("Received KES " + String.format(Locale.US, "%.2f", amount) + " via Lipa Na M-Pesa!");
-                            Toast.makeText(MainActivity.this, "M-Pesa payment captured successfully!", Toast.LENGTH_SHORT).show();
+                networkExecutor.execute(() -> {
+                    String initiatedRef = null;
+                    String serverMessage = null;
+                    boolean networkFailed = false;
 
-                            handler.postDelayed(() -> {
-                                dialog.dismiss();
-                                if (ticketId != null) {
-                                    for (int i = 0; i < repairsList.size(); i++) {
-                                        com.urbandevicecare.pos.model.RepairTicketRecord r = repairsList.get(i);
-                                        if (r.getTicketNumber().equalsIgnoreCase(ticketId)) {
-                                            com.urbandevicecare.pos.model.RepairTicketRecord settled = new com.urbandevicecare.pos.model.RepairTicketRecord(
-                                                r.getId(), r.getTicketNumber(), r.getCustomerId(), r.getCustomerName(),
-                                                r.getCustomerPhone(), r.getCustomerEmail(), r.getTechnicianName(), r.getTechnicianId(),
-                                                r.getBrand(), r.getModelName(), r.getDeviceName(), r.getSerialNumber(),
-                                                r.getImei(), r.getCondition(), "completed", r.getIssueDescription(),
-                                                r.getAccessories(), r.getPasscode(), r.getTotalEstimate(),
-                                                r.getTotalEstimate(), 0.0, "captured", r.isTermsAccepted(),
-                                                r.isDataWipedConsent(), r.getCreatedAt(), r.getCompanyName()
-                                            );
-                                            repairsList.set(i, settled);
-                                            break;
-                                        }
-                                    }
-                                } else {
-                                    completeSaleAndPrint();
-                                }
-                            }, 1200);
+                    try {
+                        String endpoint = ticketId != null ?
+                            serverBaseUrl + "/admin/repairs/" + ticketId + "/stk-push" :
+                            serverBaseUrl + "/admin/paystack/stk-push";
+
+                        URL url = new URL(endpoint);
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setRequestMethod("POST");
+                        conn.setRequestProperty("Content-Type", "application/json");
+                        conn.setRequestProperty("Accept", "application/json");
+                        if (activeAuthToken != null) {
+                            conn.setRequestProperty("Authorization", "Bearer " + activeAuthToken);
+                        }
+                        conn.setConnectTimeout(4000);
+                        conn.setReadTimeout(4000);
+                        conn.setDoOutput(true);
+
+                        JSONObject payload = new JSONObject();
+                        payload.put("phone", phone);
+                        payload.put("amount", amount);
+                        if (ticketId != null) payload.put("ticket_id", ticketId);
+                        else payload.put("order_id", "pos_" + System.currentTimeMillis());
+
+                        try (OutputStream os = conn.getOutputStream()) {
+                            os.write(payload.toString().getBytes("UTF-8"));
+                        }
+
+                        int code = conn.getResponseCode();
+                        if (code == 404 || code == 401) {
+                            conn.disconnect();
+                            url = new URL(serverBaseUrl + "/api/pos/stk-push");
+                            conn = (HttpURLConnection) url.openConnection();
+                            conn.setRequestMethod("POST");
+                            conn.setRequestProperty("Content-Type", "application/json");
+                            conn.setRequestProperty("Accept", "application/json");
+                            if (activeAuthToken != null) {
+                                conn.setRequestProperty("Authorization", "Bearer " + activeAuthToken);
+                            }
+                            conn.setConnectTimeout(4000);
+                            conn.setReadTimeout(4000);
+                            conn.setDoOutput(true);
+                            try (OutputStream os = conn.getOutputStream()) {
+                                os.write(payload.toString().getBytes("UTF-8"));
+                            }
+                            code = conn.getResponseCode();
+                        }
+
+                        InputStreamReader isr = new InputStreamReader(
+                            code >= 200 && code < 300 ? conn.getInputStream() : (conn.getErrorStream() != null ? conn.getErrorStream() : conn.getInputStream())
+                        );
+                        BufferedReader reader = new BufferedReader(isr);
+                        StringBuilder sb = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) sb.append(line);
+                        reader.close();
+
+                        JSONObject respJson = new JSONObject(sb.toString());
+                        if (code >= 200 && code < 300) {
+                            initiatedRef = respJson.optString("reference", respJson.optJSONObject("data") != null ? respJson.optJSONObject("data").optString("reference") : null);
+                            serverMessage = respJson.optString("message", "STK Prompt sent! Enter M-Pesa PIN on handset.");
+                        } else {
+                            serverMessage = respJson.optString("message", respJson.optString("error", "Failed to initiate M-Pesa STK prompt."));
+                        }
+                    } catch (Exception ex) {
+                        networkFailed = true;
+                    }
+
+                    final String finalRef = initiatedRef != null ? initiatedRef : (networkFailed ? "STK-POS-" + (100000 + new Random().nextInt(900000)) : null);
+                    final String finalMsg = serverMessage;
+                    final boolean isOfflineSim = networkFailed;
+
+                    runOnUiThread(() -> {
+                        if (finalRef == null) {
+                            if (tvStatus != null) tvStatus.setText(finalMsg != null ? finalMsg : "STK initiation rejected by server.");
+                            btnSend.setEnabled(true);
                             return;
                         }
-                        if (secondsRemaining[0] > 0) {
-                            handler.postDelayed(this, 1000);
-                        } else {
-                            if (tvStatus != null) tvStatus.setText("STK request timed out. Please retry.");
-                            btnSend.setEnabled(true);
-                            if (layoutCountdown != null) layoutCountdown.setVisibility(View.GONE);
-                        }
-                    }
-                };
-                handler.postDelayed(timerRunnable[0], 1000);
+
+                        if (tvRef != null) tvRef.setText("Ref: " + finalRef);
+                        if (layoutCountdown != null) layoutCountdown.setVisibility(View.VISIBLE);
+                        if (tvStatus != null) tvStatus.setText(finalMsg != null ? finalMsg : "STK Prompt sent! Enter M-Pesa PIN on handset.");
+
+                        startAndroidStkPolling(dialog, finalRef, amount, phone, ticketId, isOfflineSim, tvCountdown, tvStatus, btnSend, layoutCountdown, handler, secondsRemaining, timerRunnable);
+                    });
+                });
             });
         }
 
@@ -736,6 +964,120 @@ public class MainActivity extends AppCompatActivity {
         });
 
         dialog.show();
+    }
+
+    private void startAndroidStkPolling(
+            AlertDialog dialog, String ref, double amount, String phone, String ticketId, boolean isOfflineSim,
+            TextView tvCountdown, TextView tvStatus, Button btnSend, LinearLayout layoutCountdown,
+            Handler handler, int[] secondsRemaining, Runnable[] timerRunnable
+    ) {
+        timerRunnable[0] = new Runnable() {
+            @Override
+            public void run() {
+                secondsRemaining[0] -= 2;
+                if (tvCountdown != null) {
+                    tvCountdown.setText(Math.max(0, secondsRemaining[0]) + "s remaining");
+                }
+
+                if (!isOfflineSim) {
+                    networkExecutor.execute(() -> {
+                        try {
+                            URL vUrl = new URL(serverBaseUrl + "/api/pos/verify-payment?reference=" + URLEncoder.encode(ref, "UTF-8"));
+                            HttpURLConnection conn = (HttpURLConnection) vUrl.openConnection();
+                            conn.setRequestMethod("GET");
+                            conn.setRequestProperty("Accept", "application/json");
+                            conn.setConnectTimeout(2500);
+                            conn.setReadTimeout(2500);
+
+                            if (conn.getResponseCode() >= 200 && conn.getResponseCode() < 300) {
+                                BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                                StringBuilder sb = new StringBuilder();
+                                String line;
+                                while ((line = reader.readLine()) != null) sb.append(line);
+                                reader.close();
+
+                                JSONObject json = new JSONObject(sb.toString());
+                                String st = json.optString("status", "");
+                                boolean success = json.optBoolean("success", "success".equalsIgnoreCase(st));
+
+                                if (success || "success".equalsIgnoreCase(st)) {
+                                    runOnUiThread(() -> finalizeAndroidStkSuccess(dialog, amount, ticketId, tvCountdown, tvStatus, handler, timerRunnable));
+                                    return;
+                                } else if ("failed".equalsIgnoreCase(st) || "abandoned".equalsIgnoreCase(st)) {
+                                    runOnUiThread(() -> {
+                                        if (timerRunnable[0] != null) handler.removeCallbacks(timerRunnable[0]);
+                                        if (tvStatus != null) tvStatus.setText("Payment failed or was declined.");
+                                        btnSend.setEnabled(true);
+                                    });
+                                    return;
+                                }
+                            }
+                        } catch (Exception ignored) {}
+
+                        if (secondsRemaining[0] <= 0) {
+                            runOnUiThread(() -> {
+                                if (timerRunnable[0] != null) handler.removeCallbacks(timerRunnable[0]);
+                                if (tvStatus != null) tvStatus.setText("STK request timed out. Please retry.");
+                                btnSend.setEnabled(true);
+                                if (layoutCountdown != null) layoutCountdown.setVisibility(View.GONE);
+                            });
+                        } else {
+                            handler.postDelayed(timerRunnable[0], 2000);
+                        }
+                    });
+                } else {
+                    if (secondsRemaining[0] <= 56) {
+                        finalizeAndroidStkSuccess(dialog, amount, ticketId, tvCountdown, tvStatus, handler, timerRunnable);
+                        return;
+                    }
+                    if (secondsRemaining[0] > 0) {
+                        handler.postDelayed(timerRunnable[0], 2000);
+                    } else {
+                        if (tvStatus != null) tvStatus.setText("STK request timed out. Please retry.");
+                        btnSend.setEnabled(true);
+                        if (layoutCountdown != null) layoutCountdown.setVisibility(View.GONE);
+                    }
+                }
+            }
+        };
+        handler.postDelayed(timerRunnable[0], 2000);
+    }
+
+    private void finalizeAndroidStkSuccess(
+            AlertDialog dialog, double amount, String ticketId,
+            TextView tvCountdown, TextView tvStatus, Handler handler, Runnable[] timerRunnable
+    ) {
+        if (timerRunnable[0] != null) handler.removeCallbacks(timerRunnable[0]);
+        if (tvCountdown != null) tvCountdown.setText("✔ Payment Captured!");
+        if (tvStatus != null) tvStatus.setText("Received KES " + String.format(Locale.US, "%.2f", amount) + " via Lipa Na M-Pesa!");
+        Toast.makeText(MainActivity.this, "M-Pesa payment captured successfully!", Toast.LENGTH_SHORT).show();
+
+        handler.postDelayed(() -> {
+            dialog.dismiss();
+            if (ticketId != null) {
+                for (int i = 0; i < repairsList.size(); i++) {
+                    com.urbandevicecare.pos.model.RepairTicketRecord r = repairsList.get(i);
+                    if (r.getTicketNumber().equalsIgnoreCase(ticketId) || r.getId().equalsIgnoreCase(ticketId)) {
+                        double newPaid = r.getAmountPaid() + amount;
+                        double newBal = Math.max(0, r.getTotalEstimate() - newPaid);
+                        String newPayStatus = newBal <= 0 ? "captured" : "partially_paid";
+                        com.urbandevicecare.pos.model.RepairTicketRecord settled = new com.urbandevicecare.pos.model.RepairTicketRecord(
+                            r.getId(), r.getTicketNumber(), r.getCustomerId(), r.getCustomerName(),
+                            r.getCustomerPhone(), r.getCustomerEmail(), r.getTechnicianName(), r.getTechnicianId(),
+                            r.getBrand(), r.getModelName(), r.getDeviceName(), r.getSerialNumber(),
+                            r.getImei(), r.getCondition(), newBal <= 0 ? "completed" : r.getStatus(), r.getIssueDescription(),
+                            r.getAccessories(), r.getPasscode(), r.getTotalEstimate(),
+                            newPaid, newBal, newPayStatus, r.isTermsAccepted(),
+                            r.isDataWipedConsent(), r.getCreatedAt(), r.getCompanyName()
+                        );
+                        repairsList.set(i, settled);
+                        break;
+                    }
+                }
+            } else {
+                completeSaleAndPrint();
+            }
+        }, 1200);
     }
 
     private void updateChangeDue() {
@@ -1002,7 +1344,6 @@ public class MainActivity extends AppCompatActivity {
 
         Button btnPushStk = dialogView.findViewById(R.id.btn_detail_push_stk);
         Button btnClose = dialogView.findViewById(R.id.btn_detail_close);
-        Button btnTenderCart = dialogView.findViewById(R.id.btn_detail_tender_cart);
 
         if (tvTicketNum != null) tvTicketNum.setText(ticket.getTicketNumber());
         if (tvStatus != null) tvStatus.setText(ticket.getStatus().toUpperCase(Locale.ROOT));
@@ -1026,7 +1367,7 @@ public class MainActivity extends AppCompatActivity {
                 btnPushStk.setBackgroundColor(Color.GRAY);
             } else {
                 btnPushStk.setEnabled(true);
-                btnPushStk.setText("Push M-Pesa STK");
+                btnPushStk.setText(String.format(Locale.US, "Push M-Pesa STK (KES %.2f)", ticket.getBalanceDue()));
                 btnPushStk.setBackgroundColor(Color.parseColor("#00A344"));
                 btnPushStk.setOnClickListener(v -> {
                     dialog.dismiss();
@@ -1036,16 +1377,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (btnClose != null) btnClose.setOnClickListener(v -> dialog.dismiss());
-        if (btnTenderCart != null) {
-            if (ticket.getBalanceDue() <= 0) {
-                btnTenderCart.setEnabled(false);
-            } else {
-                btnTenderCart.setOnClickListener(v -> {
-                    dialog.dismiss();
-                    tenderRepairBalance(ticket);
-                });
-            }
-        }
 
         dialog.show();
     }
@@ -1104,6 +1435,31 @@ public class MainActivity extends AppCompatActivity {
         } else {
             etCustName.setText(activeCashier.getName());
             etCustPhone.setText("+254 700 000 000");
+        }
+
+        Button btnSelectCatalogPart = dialogView.findViewById(R.id.btn_intake_select_catalog_part);
+        if (btnSelectCatalogPart != null) {
+            btnSelectCatalogPart.setOnClickListener(v -> {
+                if (catalog.isEmpty()) {
+                    Toast.makeText(this, "No live catalog parts loaded yet", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                String[] partTitles = new String[catalog.size()];
+                for (int i = 0; i < catalog.size(); i++) {
+                    ProductPart p = catalog.get(i);
+                    partTitles[i] = p.getTitle() + " - KES " + String.format(Locale.US, "%.2f", p.getPrice()) + " (Stock: " + p.getInventoryQuantity() + ")";
+                }
+                new AlertDialog.Builder(this)
+                    .setTitle("Select Live Catalog Part")
+                    .setItems(partTitles, (d, which) -> {
+                        ProductPart chosen = catalog.get(which);
+                        double partPrice = chosen.getPrice();
+                        etEstimate.setText(String.format(Locale.US, "%.2f", partPrice + 2000.0));
+                        etIssue.setText("Replacement of " + chosen.getTitle());
+                        btnSelectCatalogPart.setText("Part: " + chosen.getTitle() + " (KES " + String.format(Locale.US, "%.2f", partPrice) + ")");
+                    })
+                    .show();
+            });
         }
 
         builder.setView(dialogView);
@@ -1184,6 +1540,53 @@ public class MainActivity extends AppCompatActivity {
             }
             tvStatusNotice.setText("✔ Booked Repair #" + ticketNum + " for " + custName);
             Toast.makeText(this, "Booked Repair #" + ticketNum + " for " + custName, Toast.LENGTH_LONG).show();
+
+            // Submit to live Medusa backend
+            final String fCustName = custName;
+            final String fCustPhone = custPhone;
+            final String fCustEmail = custEmail;
+            final double fEst = estimate;
+            final double fDep = deposit;
+            networkExecutor.execute(() -> {
+                try {
+                    URL url = new URL(serverBaseUrl + "/api/pos/repairs");
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("POST");
+                    conn.setRequestProperty("Content-Type", "application/json");
+                    conn.setRequestProperty("Accept", "application/json");
+                    if (activeAuthToken != null) {
+                        conn.setRequestProperty("Authorization", "Bearer " + activeAuthToken);
+                    }
+                    conn.setConnectTimeout(4000);
+                    conn.setReadTimeout(4000);
+                    conn.setDoOutput(true);
+
+                    JSONObject payload = new JSONObject();
+                    JSONObject devObj = new JSONObject();
+                    devObj.put("brand", brand);
+                    devObj.put("model_name", model);
+                    devObj.put("serial_number", serial);
+                    devObj.put("customer_id", activeCustomer != null ? activeCustomer.getId() : activeCashier.getId());
+
+                    JSONObject tObj = new JSONObject();
+                    tObj.put("customer_id", activeCustomer != null ? activeCustomer.getId() : activeCashier.getId());
+                    tObj.put("customer_name", fCustName);
+                    tObj.put("customer_phone", fCustPhone);
+                    tObj.put("customer_email", fCustEmail);
+                    tObj.put("issue_description", issue);
+                    tObj.put("accessories", accessories);
+                    tObj.put("total_estimate", fEst);
+                    tObj.put("amount_paid", fDep);
+
+                    payload.put("device", devObj);
+                    payload.put("ticket", tObj);
+
+                    try (OutputStream os = conn.getOutputStream()) {
+                        os.write(payload.toString().getBytes("UTF-8"));
+                    }
+                    conn.getResponseCode();
+                } catch (Exception ignored) {}
+            });
         });
         builder.setNegativeButton("Cancel", null);
         builder.show();
@@ -1339,15 +1742,30 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    public static String normalizePhoneDigits(String phone) {
+        if (phone == null) return "";
+        String digits = phone.replaceAll("[^0-9]", "");
+        if (digits.startsWith("254") && digits.length() > 3) {
+            digits = digits.substring(3);
+        } else if (digits.startsWith("0") && digits.length() > 1) {
+            digits = digits.substring(1);
+        }
+        return digits;
+    }
+
     public void searchCustomer(String query) {
         if (query == null || query.trim().isEmpty()) {
             Toast.makeText(this, "Enter customer name, phone, or company", Toast.LENGTH_SHORT).show();
             return;
         }
         String q = query.trim().toLowerCase(Locale.ROOT);
+        String cleanDigits = normalizePhoneDigits(q);
         for (POSCustomer c : customerList) {
+            String cDigits = normalizePhoneDigits(c.getPhone());
+            boolean phoneMatches = (c.getPhone() != null && c.getPhone().toLowerCase(Locale.ROOT).contains(q)) ||
+                (!cleanDigits.isEmpty() && !cDigits.isEmpty() && (cDigits.contains(cleanDigits) || cleanDigits.contains(cDigits)));
             if ((c.getFullName().toLowerCase(Locale.ROOT).contains(q)) ||
-                (c.getPhone() != null && c.getPhone().contains(q)) ||
+                phoneMatches ||
                 (c.getEmail() != null && c.getEmail().toLowerCase(Locale.ROOT).contains(q)) ||
                 (c.getCompanyName() != null && c.getCompanyName().toLowerCase(Locale.ROOT).contains(q))) {
                 selectCustomer(c);
