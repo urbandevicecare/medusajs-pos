@@ -5,8 +5,18 @@ import Security
 /// Encrypts and securely stores server URLs, API keys, and staff session tokens using AES-256 GCM.
 public enum KeychainSecurity {
     private static let serviceName = "co.uk.urbandevicecare.pos"
+    public static var useInMemoryStoreForTesting: Bool = false
+    private static var inMemoryStore: [String: String] = [:]
+    
+    private static var isTestEnvironment: Bool {
+        useInMemoryStoreForTesting || ProcessInfo.processInfo.environment["UDC_POS_TEST_MODE"] == "1"
+    }
     
     public static func save(key: String, value: String) -> Bool {
+        if isTestEnvironment {
+            inMemoryStore[key] = value
+            return true
+        }
         guard let data = value.data(using: .utf8) else { return false }
         
         let query: [String: Any] = [
@@ -24,6 +34,9 @@ public enum KeychainSecurity {
     }
     
     public static func load(key: String) -> String? {
+        if isTestEnvironment {
+            return inMemoryStore[key]
+        }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: serviceName,
@@ -41,6 +54,10 @@ public enum KeychainSecurity {
     }
     
     public static func delete(key: String) {
+        if isTestEnvironment {
+            inMemoryStore.removeValue(forKey: key)
+            return
+        }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: serviceName,

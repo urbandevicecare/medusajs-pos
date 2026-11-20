@@ -10,8 +10,13 @@ public class ProductPart {
     private final String barcode;
     private final double price;
     private final int inventoryQuantity;
+    private final boolean isCustom;
 
     public ProductPart(String id, String title, String productTitle, String sku, String barcode, double price, int inventoryQuantity) {
+        this(id, title, productTitle, sku, barcode, price, inventoryQuantity, false);
+    }
+
+    public ProductPart(String id, String title, String productTitle, String sku, String barcode, double price, int inventoryQuantity, boolean isCustom) {
         this.id = id;
         this.title = title;
         this.productTitle = productTitle;
@@ -19,6 +24,7 @@ public class ProductPart {
         this.barcode = barcode;
         this.price = price;
         this.inventoryQuantity = inventoryQuantity;
+        this.isCustom = isCustom;
     }
 
     public String getId() { return id; }
@@ -29,6 +35,7 @@ public class ProductPart {
     public String getBarcode() { return barcode; }
     public double getPrice() { return price; }
     public int getInventoryQuantity() { return inventoryQuantity; }
+    public boolean isCustom() { return isCustom; }
     public String getFormattedPrice() { return String.format("KES %.2f", price); }
 
     @Override

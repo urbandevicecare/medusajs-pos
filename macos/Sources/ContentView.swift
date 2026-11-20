@@ -266,6 +266,15 @@ public struct ContentView: View {
         .sheet(isPresented: $viewModel.showQuickCustomerSheet) {
             QuickCustomerSheet(viewModel: viewModel)
         }
+        .sheet(isPresented: $viewModel.showCustomItemSheet) {
+            CustomItemSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $viewModel.showIntakeSheet) {
+            RepairIntakeSheet(viewModel: viewModel)
+        }
+        .sheet(item: $viewModel.selectedRepair) { ticket in
+            RepairDetailsSheet(viewModel: viewModel, ticket: ticket)
+        }
     }
     
     // MARK: - Subviews
@@ -348,12 +357,16 @@ public struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             headerBar
             Divider()
-            customerBarAndSearch
-            Divider()
-            HStack(alignment: .top, spacing: 14) {
-                scannerAndCatalogPane
+            if viewModel.activeTab == "pos" {
+                customerBarAndSearch
                 Divider()
-                cartAndTenderPane
+                HStack(alignment: .top, spacing: 14) {
+                    scannerAndCatalogPane
+                    Divider()
+                    cartAndTenderPane
+                }
+            } else {
+                repairsWorkshopPane
             }
             Divider()
             footerBar
@@ -370,6 +383,59 @@ public struct ContentView: View {
             Text("Urban Device Care POS")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(.primary)
+            
+            // Sleek minimalist navigation control ("POS" and "Repairs")
+            HStack(spacing: 2) {
+                Button(action: { viewModel.activeTab = "pos" }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "cart")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("POS")
+                            .font(.system(size: 11, weight: viewModel.activeTab == "pos" ? .semibold : .regular))
+                    }
+                    .foregroundColor(viewModel.activeTab == "pos" ? .white : .secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(viewModel.activeTab == "pos" ? Color.blue.opacity(0.9) : Color.clear)
+                    .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                Button(action: {
+                    viewModel.activeTab = "repairs"
+                    viewModel.fetchRepairs()
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "wrench.and.screwdriver")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Repairs")
+                            .font(.system(size: 11, weight: viewModel.activeTab == "repairs" ? .semibold : .regular))
+                        if !viewModel.repairs.isEmpty {
+                            Text("\(viewModel.repairs.count)")
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(viewModel.activeTab == "repairs" ? Color.white.opacity(0.2) : Color.primary.opacity(0.08))
+                                .foregroundColor(viewModel.activeTab == "repairs" ? .white : .secondary)
+                                .cornerRadius(4)
+                        }
+                    }
+                    .foregroundColor(viewModel.activeTab == "repairs" ? .white : .secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(viewModel.activeTab == "repairs" ? Color.blue.opacity(0.9) : Color.clear)
+                    .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(2)
+            .background(Color.primary.opacity(0.05))
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+            .padding(.leading, 8)
             
             Spacer()
             
@@ -568,6 +634,17 @@ public struct ContentView: View {
                     .buttonStyle(InteractiveButtonStyle(isPrimary: true))
                 }
                 
+                HStack(spacing: 4) {
+                    Text("Default Client:")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                    Text("\(viewModel.cashier.name) (Staff Account)")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.blue)
+                    Spacer()
+                }
+                .padding(.horizontal, 2)
+                
                 if !viewModel.customerSearchText.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
                         if !viewModel.searchCustomerResults.isEmpty {
@@ -632,6 +709,21 @@ public struct ContentView: View {
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.secondary)
                 Spacer()
+                Button(action: {
+                    viewModel.showCustomItemSheet = true
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "plus.circle.fill")
+                        Text("+ Custom Item")
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.blue)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(4)
+                }
+                .buttonStyle(PlainButtonStyle())
                 Text("1D & 2D Active")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundColor(.secondary.opacity(0.8))
@@ -807,6 +899,112 @@ public struct ContentView: View {
     }
     
     @ViewBuilder
+    private var repairsWorkshopPane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                    TextField("Search repairs by ticket #, client, phone, serial or device...", text: $viewModel.repairSearchText)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .font(.system(size: 11))
+                }
+                .padding(6)
+                .background(Color.gray.opacity(0.08))
+                .cornerRadius(6)
+                
+                Picker("Status", selection: $viewModel.repairFilterStatus) {
+                    Group {
+                        Text("All Statuses").tag("all")
+                        Text("Dropoff").tag("pending_dropoff")
+                        Text("Received").tag("received")
+                        Text("Diagnosing").tag("diagnosing")
+                        Text("Awaiting Approval").tag("awaiting_approval")
+                        Text("Repairing").tag("repairing")
+                    }
+                    Group {
+                        Text("Ready for Pickup").tag("ready")
+                        Text("Completed").tag("completed")
+                        Text("Collected").tag("collected")
+                        Text("Cancelled").tag("cancelled")
+                        Text("Refunded").tag("refunded")
+                    }
+                }
+                .pickerStyle(MenuPickerStyle())
+                .frame(width: 140)
+                
+                Button(action: {
+                    viewModel.fetchRepairs()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Refresh")
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                Button(action: {
+                    viewModel.showIntakeSheet = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus.circle.fill")
+                        Text("+ Book Repair Intake")
+                    }
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.blue)
+                    .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            if viewModel.filteredRepairs.isEmpty {
+                VStack(spacing: 8) {
+                    Spacer()
+                    Image(systemName: "wrench.and.screwdriver")
+                        .font(.system(size: 32))
+                        .foregroundColor(.secondary.opacity(0.4))
+                    Text("No repair tickets match the selected filter.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Button(action: {
+                        viewModel.showIntakeSheet = true
+                    }) {
+                        Text("+ Create First Repair Ticket")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.blue)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(viewModel.filteredRepairs) { ticket in
+                            RepairTicketCardView(ticket: ticket, onTender: {
+                                viewModel.tenderRepairBalance(ticket: ticket)
+                            }, onViewDetails: {
+                                viewModel.selectedRepair = ticket
+                            })
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    @ViewBuilder
     private var footerBar: some View {
         HStack {
             Text(viewModel.statusNotice)
@@ -973,12 +1171,794 @@ public struct QuickCustomerSheet: View {
     }
 }
 
-// MARK: - Staff Authentication View (PIN / Medusa Credentials)
+// MARK: - Repair Ticket Card View
+
+public struct RepairTicketCardView: View {
+    public let ticket: RepairTicketRecord
+    public let onTender: () -> Void
+    public let onViewDetails: () -> Void
+    
+    @State private var isHovered: Bool = false
+    
+    private var statusColor: Color {
+        switch ticket.status.lowercased() {
+        case "ready": return .green
+        case "repairing": return .blue
+        case "diagnosing": return .purple
+        case "received": return .orange
+        case "awaiting_approval": return .yellow
+        case "pending_dropoff": return .secondary
+        case "completed": return .gray
+        case "collected": return .teal
+        case "cancelled", "refunded": return .red
+        default: return .secondary
+        }
+    }
+    
+    private var paymentBadgeText: String {
+        switch ticket.paymentStatus.lowercased() {
+        case "paid", "captured": return "Paid"
+        case "partially_paid": return "Partially Paid"
+        case "refunded": return "Refunded"
+        default: return "Unpaid"
+        }
+    }
+    
+    private var paymentBadgeColor: Color {
+        switch ticket.paymentStatus.lowercased() {
+        case "paid", "captured": return .green
+        case "partially_paid": return .orange
+        case "refunded": return .purple
+        default: return .red
+        }
+    }
+    
+    public var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(ticket.ticketNumber)
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundColor(.primary)
+                    Text(ticket.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                        .font(.system(size: 9, weight: .bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(statusColor.opacity(0.15))
+                        .foregroundColor(statusColor)
+                        .cornerRadius(4)
+                    Text(paymentBadgeText)
+                        .font(.system(size: 8, weight: .bold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(paymentBadgeColor.opacity(0.12))
+                        .foregroundColor(paymentBadgeColor)
+                        .cornerRadius(4)
+                    if let dName = ticket.deviceName, !dName.isEmpty {
+                        Text(dName)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.primary)
+                    }
+                    if let sNum = ticket.serialNumber, !sNum.isEmpty {
+                        Text("S/N: \(sNum)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                HStack(spacing: 8) {
+                    Text("Client: \(ticket.customerName ?? "Walk-in")")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                    if let phone = ticket.customerPhone, !phone.isEmpty {
+                        Text("• Tel: \(phone)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                    if let tech = ticket.technicianName, !tech.isEmpty {
+                        Text("• Tech: \(tech)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.blue)
+                    }
+                    if let cond = ticket.condition, !cond.isEmpty {
+                        Text("• Condition: \(cond)")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                Text(ticket.issueDescription)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+            
+            Spacer()
+            
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text("Est: KES \(String(format: "%.0f", ticket.totalEstimate))")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                    if ticket.depositAmount > 0 {
+                        Text("Dep: KES \(String(format: "%.0f", ticket.depositAmount))")
+                            .font(.system(size: 9))
+                            .foregroundColor(.green)
+                    }
+                }
+                
+                HStack(spacing: 4) {
+                    Text("Balance Due:")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Text(String(format: "KES %.2f", ticket.balanceDue))
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundColor(ticket.balanceDue > 0 ? .orange : .green)
+                }
+                
+                HStack(spacing: 6) {
+                    Button(action: onViewDetails) {
+                        Text("Details")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.gray.opacity(0.12))
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    if ticket.balanceDue > 0 {
+                        Button(action: onTender) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "cart.badge.plus")
+                                Text("Add to Cart")
+                            }
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.green)
+                            .cornerRadius(4)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    } else {
+                        Text("Paid in Full")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.green)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.green.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(isHovered ? Color.gray.opacity(0.08) : Color.gray.opacity(0.04))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isHovered ? Color.blue.opacity(0.3) : Color.gray.opacity(0.15), lineWidth: 1)
+        )
+        .onHover { h in isHovered = h }
+    }
+}
+
+// MARK: - Custom Non-Catalog Item Sheet
+
+public struct CustomItemSheet: View {
+    @ObservedObject public var viewModel: POSViewModel
+    @State private var title: String = ""
+    @State private var priceText: String = ""
+    @State private var quantity: Int = 1
+    @State private var skuText: String = ""
+    @State private var errorMessage: String? = nil
+    
+    public init(viewModel: POSViewModel) {
+        self.viewModel = viewModel
+    }
+    
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Image(systemName: "cart.badge.plus")
+                    .foregroundColor(.blue)
+                    .font(.system(size: 16, weight: .bold))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("+ Add Custom Non-Catalog Item")
+                        .font(.system(size: 13, weight: .bold))
+                    Text("Create arbitrary counter item or one-off fee")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(action: { viewModel.showCustomItemSheet = false }) {
+                    Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            if let err = errorMessage {
+                Text(err)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(4)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Item Title / Description *").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                TextField("e.g. Tempered Glass + Screen Fitting", text: $title)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .font(.system(size: 12))
+            }
+            
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Unit Price (KES) *").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                    TextField("1500.00", text: $priceText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.system(size: 12, design: .monospaced))
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Quantity").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                    Stepper("\(quantity)", value: $quantity, in: 1...99)
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("SKU / Barcode Reference").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                    Text("(Optional)").font(.system(size: 9)).foregroundColor(.secondary.opacity(0.7))
+                }
+                TextField("CUSTOM-01", text: $skuText)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .font(.system(size: 12, design: .monospaced))
+            }
+            
+            Divider()
+            
+            HStack(spacing: 8) {
+                MinimalButton(title: "Cancel") {
+                    viewModel.showCustomItemSheet = false
+                }
+                MinimalButton(title: "Add to Order", isPrimary: true) {
+                    let cleanT = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !cleanT.isEmpty else {
+                        errorMessage = "Item title is required"
+                        return
+                    }
+                    guard let p = Double(priceText), p >= 0 else {
+                        errorMessage = "Valid unit price is required"
+                        return
+                    }
+                    viewModel.addCustomItem(title: cleanT, price: p, quantity: quantity, sku: skuText.isEmpty ? nil : skuText)
+                    viewModel.showCustomItemSheet = false
+                }
+            }
+        }
+        .padding(18)
+        .frame(width: 360)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+}
+
+// MARK: - Workshop Repair Intake Sheet
+
+public struct RepairIntakeSheet: View {
+    @ObservedObject public var viewModel: POSViewModel
+    
+    @State private var customerName: String = ""
+    @State private var customerPhone: String = ""
+    @State private var customerEmail: String = ""
+    @State private var deviceBrand: String = "Apple"
+    @State private var deviceModel: String = ""
+    @State private var deviceSerial: String = ""
+    @State private var imei: String = ""
+    @State private var condition: String = "Good"
+    @State private var deviceType: String = "Laptop"
+    @State private var passcode: String = ""
+    @State private var technicianName: String = ""
+    @State private var issueDescription: String = ""
+    @State private var accessories: String = ""
+    @State private var estimateText: String = ""
+    @State private var depositText: String = ""
+    @State private var termsAccepted: Bool = true
+    @State private var dataWipedConsent: Bool = true
+    @State private var errorMessage: String? = nil
+    
+    public init(viewModel: POSViewModel) {
+        self.viewModel = viewModel
+        if let cust = viewModel.selectedCustomer {
+            _customerName = State(initialValue: cust.fullName)
+            _customerPhone = State(initialValue: cust.phone ?? "")
+            _customerEmail = State(initialValue: cust.email)
+        } else {
+            _customerName = State(initialValue: viewModel.cashier.name)
+            _customerEmail = State(initialValue: viewModel.cashier.email)
+        }
+        _technicianName = State(initialValue: viewModel.cashier.name)
+    }
+    
+    public var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Image(systemName: "wrench.and.screwdriver.fill")
+                        .foregroundColor(.blue)
+                        .font(.system(size: 16, weight: .bold))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Book Workshop Repair Ticket")
+                            .font(.system(size: 13, weight: .bold))
+                        Text("Connected 1-to-1 with Medusa Repair Plugin")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button(action: { viewModel.showIntakeSheet = false }) {
+                        Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                
+                if let err = errorMessage {
+                    Text(err)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                        .padding(6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.1))
+                        .cornerRadius(4)
+                }
+                
+                // Client Section
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("CUSTOMER DETAILS").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Name *").font(.system(size: 9)).foregroundColor(.secondary)
+                            TextField("Customer Name", text: $customerName)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 11))
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Phone *").font(.system(size: 9)).foregroundColor(.secondary)
+                            TextField("+254 700 000 000", text: $customerPhone)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 11))
+                        }
+                    }
+                }
+                
+                // Device Section
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("DEVICE DETAILS").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Brand *").font(.system(size: 9)).foregroundColor(.secondary)
+                            TextField("e.g. Apple", text: $deviceBrand)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 11))
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Model *").font(.system(size: 9)).foregroundColor(.secondary)
+                            TextField("e.g. MacBook Pro 16-inch (A2485)", text: $deviceModel)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 11))
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Serial #").font(.system(size: 9)).foregroundColor(.secondary)
+                            TextField("C02G...", text: $deviceSerial)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 11, design: .monospaced))
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("IMEI").font(.system(size: 9)).foregroundColor(.secondary)
+                            TextField("3589...", text: $imei)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 11, design: .monospaced))
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Condition").font(.system(size: 9)).foregroundColor(.secondary)
+                            TextField("e.g. Good, Minor Scratches", text: $condition)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 11))
+                        }
+                    }
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Passcode / PIN").font(.system(size: 9)).foregroundColor(.secondary)
+                            TextField("e.g. 1234 or Pattern", text: $passcode)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 11))
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Assigned Technician").font(.system(size: 9)).foregroundColor(.secondary)
+                            TextField("Technician Name", text: $technicianName)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 11))
+                        }
+                    }
+                }
+                
+                // Fault Description
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Reported Issue / Fault Description *").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                    TextField("Describe symptoms, liquid spill, drops, damaged components...", text: $issueDescription)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.system(size: 11))
+                }
+                
+                // Accessories Left
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Accessories Left with Device").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                    TextField("e.g. Charger, Case, Dongle, Box", text: $accessories)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.system(size: 11))
+                }
+                
+                // Financials
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Total Estimate (KES)").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                        TextField("0.00", text: $estimateText)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .font(.system(size: 11, design: .monospaced))
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Deposit Paid (KES)").font(.system(size: 10, weight: .semibold)).foregroundColor(.secondary)
+                        TextField("0.00", text: $depositText)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .font(.system(size: 11, design: .monospaced))
+                    }
+                }
+                
+                // Terms and Consent
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Customer accepts diagnostic & repair terms", isOn: $termsAccepted)
+                        .font(.system(size: 10))
+                    Toggle("Customer acknowledges potential data loss / wipe consent", isOn: $dataWipedConsent)
+                        .font(.system(size: 10))
+                }
+                
+                Divider()
+                
+                HStack(spacing: 8) {
+                    MinimalButton(title: "Cancel") {
+                        viewModel.showIntakeSheet = false
+                    }
+                    MinimalButton(title: "Create Ticket & Print Intake", isPrimary: true) {
+                        let cName = customerName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let dModel = deviceModel.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let issue = issueDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                        
+                        guard !cName.isEmpty else {
+                            errorMessage = "Customer name is required"
+                            return
+                        }
+                        guard !dModel.isEmpty else {
+                            errorMessage = "Device model is required"
+                            return
+                        }
+                        guard !issue.isEmpty else {
+                            errorMessage = "Issue description is required"
+                            return
+                        }
+                        
+                        let est = Double(estimateText) ?? 0.0
+                        let dep = Double(depositText) ?? 0.0
+                        
+                        viewModel.createRepairIntake(
+                            customerName: cName,
+                            customerPhone: customerPhone,
+                            customerEmail: customerEmail.isEmpty ? nil : customerEmail,
+                            deviceBrand: deviceBrand,
+                            deviceModel: dModel,
+                            deviceSerial: deviceSerial.isEmpty ? nil : deviceSerial,
+                            imei: imei.isEmpty ? nil : imei,
+                            condition: condition.isEmpty ? nil : condition,
+                            technicianName: technicianName.isEmpty ? nil : technicianName,
+                            technicianId: nil,
+                            deviceType: deviceType,
+                            passcode: passcode.isEmpty ? nil : passcode,
+                            issueDescription: issue,
+                            accessories: accessories.isEmpty ? nil : accessories,
+                            estimate: est,
+                            deposit: dep,
+                            termsAccepted: termsAccepted,
+                            dataWipedConsent: dataWipedConsent
+                        )
+                        viewModel.showIntakeSheet = false
+                    }
+                }
+            }
+            .padding(18)
+        }
+        .frame(width: 480, height: 550)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+}
+
+// MARK: - Repair Details Sheet
+
+public struct RepairDetailsSheet: View {
+    @ObservedObject public var viewModel: POSViewModel
+    public let ticket: RepairTicketRecord
+    
+    @State private var currentStatus: String
+    @State private var statusNote: String = ""
+    @State private var newNoteContent: String = ""
+    @State private var isInternalNote: Bool = false
+    @State private var noticeMessage: String? = nil
+    
+    public init(viewModel: POSViewModel, ticket: RepairTicketRecord) {
+        self.viewModel = viewModel
+        self.ticket = ticket
+        _currentStatus = State(initialValue: ticket.status)
+    }
+    
+    private var paymentBadgeText: String {
+        switch ticket.paymentStatus.lowercased() {
+        case "paid", "captured": return "Paid"
+        case "partially_paid": return "Partially Paid"
+        case "refunded": return "Refunded"
+        default: return "Unpaid"
+        }
+    }
+    
+    private var paymentBadgeColor: Color {
+        switch ticket.paymentStatus.lowercased() {
+        case "paid", "captured": return .green
+        case "partially_paid": return .orange
+        case "refunded": return .purple
+        default: return .red
+        }
+    }
+    
+    public var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Group {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 8) {
+                                Text(ticket.ticketNumber)
+                                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                                Text(currentStatus.replacingOccurrences(of: "_", with: " ").capitalized)
+                                    .font(.system(size: 10, weight: .bold))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.blue.opacity(0.15))
+                                    .foregroundColor(.blue)
+                                    .cornerRadius(4)
+                                Text(paymentBadgeText)
+                                    .font(.system(size: 9, weight: .bold))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(paymentBadgeColor.opacity(0.15))
+                                    .foregroundColor(paymentBadgeColor)
+                                    .cornerRadius(4)
+                            }
+                            Text("Created: \(ticket.createdAt)")
+                                .font(.system(size: 9))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Button(action: { viewModel.selectedRepair = nil }) {
+                            Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                    
+                    if let msg = noticeMessage {
+                        Text(msg)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.blue)
+                            .padding(6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.blue.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                    
+                    Divider()
+                    
+                    // Status Update Row matching Medusa Repair Plugin
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("UPDATE TICKET STATUS").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                        HStack(spacing: 8) {
+                            Picker("", selection: $currentStatus) {
+                                Group {
+                                    Text("Dropoff").tag("pending_dropoff")
+                                    Text("Received").tag("received")
+                                    Text("Diagnosing").tag("diagnosing")
+                                    Text("Awaiting Approval").tag("awaiting_approval")
+                                    Text("Repairing").tag("repairing")
+                                }
+                                Group {
+                                    Text("Ready for Pickup").tag("ready")
+                                    Text("Completed").tag("completed")
+                                    Text("Collected").tag("collected")
+                                    Text("Cancelled").tag("cancelled")
+                                    Text("Refunded").tag("refunded")
+                                }
+                            }
+                            .pickerStyle(MenuPickerStyle())
+                            .frame(width: 160)
+                            
+                            TextField("Status update note (optional)", text: $statusNote)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 11))
+                            
+                            MinimalButton(title: "Save Status", isPrimary: true) {
+                                viewModel.updateRepairStatus(ticketId: ticket.id, status: currentStatus, note: statusNote.isEmpty ? nil : statusNote)
+                                noticeMessage = "Status updated to \(currentStatus)"
+                                statusNote = ""
+                            }
+                        }
+                    }
+                    
+                    Divider()
+                }
+                
+                Group {
+                    // Client & Tech Details
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("CLIENT INFORMATION").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                            Text(ticket.customerName ?? "Walk-in Client")
+                                .font(.system(size: 12, weight: .bold))
+                            if let ph = ticket.customerPhone, !ph.isEmpty { Text("Tel: \(ph)").font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary) }
+                            if let em = ticket.customerEmail, !em.isEmpty { Text("Email: \(em)").font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary) }
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("WORKSHOP & TECH").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                            Text("Tech: \(ticket.technicianName ?? viewModel.cashier.name)")
+                                .font(.system(size: 11, weight: .semibold))
+                            if let cond = ticket.condition, !cond.isEmpty { Text("Condition: \(cond)").font(.system(size: 10)).foregroundColor(.secondary) }
+                            if let imei = ticket.imei, !imei.isEmpty { Text("IMEI: \(imei)").font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary) }
+                        }
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("DEVICE DETAILS").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                        Text(ticket.deviceName ?? "Generic Device")
+                            .font(.system(size: 12, weight: .semibold))
+                        HStack(spacing: 8) {
+                            if let sn = ticket.serialNumber, !sn.isEmpty { Text("S/N: \(sn)").font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary) }
+                            if let pc = ticket.passcode, !pc.isEmpty { Text("• Passcode: \(pc)").font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary) }
+                        }
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("REPORTED FAULT").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                        Text(ticket.issueDescription)
+                            .font(.system(size: 11))
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.gray.opacity(0.08))
+                            .cornerRadius(6)
+                    }
+                    
+                    if let acc = ticket.accessories, !acc.isEmpty {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("ACCESSORIES").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                            Text(acc).font(.system(size: 10)).foregroundColor(.secondary)
+                        }
+                    }
+                }
+                
+                Group {
+                    // Financials
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Estimate: KES \(String(format: "%.2f", ticket.totalEstimate))").font(.system(size: 11))
+                            Text("Deposit: KES \(String(format: "%.2f", ticket.depositAmount))").font(.system(size: 11)).foregroundColor(.green)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("Balance Due").font(.system(size: 10)).foregroundColor(.secondary)
+                            Text(String(format: "KES %.2f", ticket.balanceDue))
+                                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                                .foregroundColor(ticket.balanceDue > 0 ? .orange : .green)
+                        }
+                    }
+                    .padding(10)
+                    .background(Color.gray.opacity(0.06))
+                    .cornerRadius(6)
+                    
+                    // Add Progress Note Row
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("ADD PROGRESS NOTE").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                        HStack(spacing: 8) {
+                            TextField("Enter workshop note or diagnostic finding...", text: $newNoteContent)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .font(.system(size: 11))
+                            Toggle("Internal", isOn: $isInternalNote)
+                                .font(.system(size: 10))
+                            MinimalButton(title: "Add Note", isPrimary: false) {
+                                let clean = newNoteContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !clean.isEmpty else { return }
+                                viewModel.addRepairNote(ticketId: ticket.id, content: clean, isInternal: isInternalNote)
+                                newNoteContent = ""
+                                noticeMessage = "Note logged successfully."
+                            }
+                        }
+                    }
+                    
+                    // Notes & Updates Log
+                    if !ticket.notes.isEmpty || !ticket.updates.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("NOTES & STATUS HISTORY").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                            VStack(spacing: 4) {
+                                ForEach(ticket.updates) { upd in
+                                    HStack {
+                                        Text("Status -> \(upd.status.capitalized)")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.blue)
+                                        if let n = upd.note, !n.isEmpty {
+                                            Text("(\(n))").font(.system(size: 10)).foregroundColor(.secondary)
+                                        }
+                                        Spacer()
+                                        Text(upd.createdAt).font(.system(size: 9)).foregroundColor(.secondary.opacity(0.7))
+                                    }
+                                    .padding(4)
+                                    .background(Color.blue.opacity(0.05))
+                                    .cornerRadius(4)
+                                }
+                                ForEach(ticket.notes) { note in
+                                    HStack {
+                                        Text(note.content).font(.system(size: 10)).foregroundColor(.primary)
+                                        Spacer()
+                                        if note.isInternal {
+                                            Text("INTERNAL")
+                                                .font(.system(size: 8, weight: .bold))
+                                                .padding(.horizontal, 4)
+                                                .background(Color.orange.opacity(0.2))
+                                                .foregroundColor(.orange)
+                                                .cornerRadius(3)
+                                        }
+                                    }
+                                    .padding(4)
+                                    .background(Color.gray.opacity(0.06))
+                                    .cornerRadius(4)
+                                }
+                            }
+                        }
+                    }
+                    
+                    Divider()
+                    
+                    HStack(spacing: 8) {
+                        MinimalButton(title: "Close") {
+                            viewModel.selectedRepair = nil
+                        }
+                        if ticket.balanceDue > 0 {
+                            MinimalButton(title: "Tender Balance to Cart", isPrimary: true) {
+                                viewModel.tenderRepairBalance(ticket: ticket)
+                                viewModel.selectedRepair = nil
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(18)
+        }
+        .frame(width: 480, height: 600)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+}
+
+// MARK: - Staff Authentication View (Medusa Credentials & Staff Presets - Zero PIN)
 
 public struct StaffLoginView: View {
     @ObservedObject public var viewModel: POSViewModel
-    @State private var loginMode: Int = 0 // 0: Quick PIN, 1: Medusa Credentials
-    @State private var enteredPin: String = ""
     @State private var emailInput: String = ""
     @State private var passwordInput: String = ""
     @State private var errorMessage: String? = nil
@@ -989,137 +1969,107 @@ public struct StaffLoginView: View {
     }
     
     public var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 20) {
             Spacer()
             
             // App Branding Header
             VStack(spacing: 6) {
                 HStack(spacing: 8) {
                     Image(systemName: "bolt.shield.fill")
-                        .font(.system(size: 26))
+                        .font(.system(size: 28))
                         .foregroundColor(.blue)
                     Text("Urban Device Care POS")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.system(size: 22, weight: .bold))
                 }
-                Text("Select your staff profile or enter PIN to begin your counter session")
+                Text("Select your staff profile or enter Medusa Admin credentials to start your till session")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
             
-            // Mode Picker
-            Picker("", selection: $loginMode) {
-                Text("Staff Quick PIN").tag(0)
-                Text("Medusa Account").tag(1)
-            }
-            .pickerStyle(SegmentedPickerStyle())
-            .frame(width: 280)
-            
-            if loginMode == 0 {
-                // Quick Staff PIN Cards
-                VStack(spacing: 14) {
-                    HStack(spacing: 12) {
-                        ForEach(viewModel.availableStaff) { staff in
-                            Button(action: {
-                                viewModel.createStaffSession(for: staff)
-                            }) {
-                                VStack(spacing: 6) {
-                                    Image(systemName: staff.role == "Admin" ? "crown.fill" : (staff.role == "Repair Technician" ? "wrench.and.screwdriver.fill" : "person.fill"))
-                                        .font(.system(size: 20))
-                                        .foregroundColor(staff.role == "Admin" ? .orange : (staff.role == "Repair Technician" ? .blue : .green))
-                                    Text(staff.name)
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(.primary)
-                                    Text(staff.role)
-                                        .font(.system(size: 9))
-                                        .foregroundColor(.secondary)
-                                    Text("PIN: \(staff.pin ?? "----")")
-                                        .font(.system(size: 9, design: .monospaced))
-                                        .foregroundColor(.secondary.opacity(0.7))
-                                }
-                                .frame(width: 105, height: 95)
-                                .background(Color.gray.opacity(0.08))
-                                .cornerRadius(8)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
-                        }
-                    }
-                    
-                    // Direct numeric PIN entry
-                    HStack(spacing: 8) {
-                        SecureField("Enter 4-Digit PIN", text: $enteredPin)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .font(.system(size: 14, design: .monospaced))
-                            .frame(width: 160)
-                            .onSubmit {
-                                submitPin()
-                            }
-                        
+            // Quick Staff Profile Presets
+            VStack(spacing: 8) {
+                Text("QUICK STAFF SIGN IN").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                HStack(spacing: 12) {
+                    ForEach(viewModel.availableStaff) { staff in
                         Button(action: {
-                            submitPin()
+                            viewModel.loginWithStaffMember(staff)
                         }) {
-                            Text("Sign In")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 6)
-                                .background(Color.blue)
-                                .cornerRadius(6)
+                            VStack(spacing: 6) {
+                                Image(systemName: staff.role == "Admin" ? "crown.fill" : (staff.role == "Repair Technician" ? "wrench.and.screwdriver.fill" : "person.fill"))
+                                    .font(.system(size: 22))
+                                    .foregroundColor(staff.role == "Admin" ? .orange : (staff.role == "Repair Technician" ? .blue : .green))
+                                Text(staff.name)
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.primary)
+                                Text(staff.role)
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(width: 100, height: 85)
+                            .background(Color.gray.opacity(0.08))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                            )
                         }
                         .buttonStyle(PlainButtonStyle())
                         .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
                     }
                 }
-            } else {
-                // Medusa Credentials Login
-                VStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Medusa Admin Email")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.secondary)
-                        TextField("admin@urbandevicecare.co.uk", text: $emailInput)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .font(.system(size: 12))
-                            .frame(width: 280)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Password")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.secondary)
-                        SecureField("••••••••", text: $passwordInput)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .font(.system(size: 12))
-                            .frame(width: 280)
-                            .onSubmit {
-                                submitMedusaLogin()
-                            }
-                    }
-                    
-                    Button(action: {
-                        submitMedusaLogin()
-                    }) {
-                        HStack(spacing: 6) {
-                            if isAuthenticating {
-                                ProgressView().scaleEffect(0.5).frame(width: 12, height: 12)
-                            }
-                            Text("Authenticate Session")
-                                .font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundColor(.white)
-                        .frame(width: 280)
-                        .padding(.vertical, 7)
-                        .background(Color.blue)
-                        .cornerRadius(6)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(isAuthenticating)
-                    .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+            }
+            
+            HStack {
+                Rectangle().fill(Color.gray.opacity(0.2)).frame(height: 1)
+                Text("OR MEDUSA ADMIN LOGIN").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary.opacity(0.8))
+                Rectangle().fill(Color.gray.opacity(0.2)).frame(height: 1)
+            }
+            .frame(width: 320)
+            
+            // Medusa Credentials Login Form
+            VStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Medusa Admin Email")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    TextField("admin@urbandevicecare.co.uk", text: $emailInput)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.system(size: 12))
+                        .frame(width: 300)
                 }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Password")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    SecureField("••••••••", text: $passwordInput)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.system(size: 12))
+                        .frame(width: 300)
+                        .onSubmit {
+                            submitMedusaLogin()
+                        }
+                }
+                
+                Button(action: {
+                    submitMedusaLogin()
+                }) {
+                    HStack(spacing: 6) {
+                        if isAuthenticating {
+                            ProgressView().scaleEffect(0.5).frame(width: 12, height: 12)
+                        }
+                        Text("Sign In to Medusa Admin")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(width: 300)
+                    .padding(.vertical, 8)
+                    .background(Color.blue)
+                    .cornerRadius(6)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(isAuthenticating)
+                .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
             }
             
             if let err = errorMessage {
@@ -1149,17 +2099,6 @@ public struct StaffLoginView: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.windowBackgroundColor))
-    }
-    
-    private func submitPin() {
-        let p = enteredPin.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !p.isEmpty else { return }
-        if viewModel.loginWithPin(pin: p) {
-            errorMessage = nil
-        } else {
-            errorMessage = "✖ Incorrect staff PIN code"
-            NSSound.beep()
-        }
     }
     
     private func submitMedusaLogin() {

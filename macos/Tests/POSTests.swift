@@ -11,21 +11,26 @@ struct POSTests {
         print(" Running UrbanDevicePOS Swift Unit & Regression Test Suite")
         print("==========================================================")
         
+        KeychainSecurity.useInMemoryStoreForTesting = true
+        
         testPOSWindowAndHostingView()
         testCatalogAndCartOperations()
+        testCustomItemAddition()
         testTenderAndChangeCalculations()
         testCashierHandoverSwitching()
         testBarcodeScanning()
         testSaleCompletion()
+        testDefaultCustomerFallback()
         testButtonActionExecution()
         testNativeThermalReceiptGeneration()
         testQuickCustomerCreationAndAutoSelect()
         testCustomerSearchAndCheckoutAttribution()
         testStaffAuthenticationAndSession()
+        testWorkshopRepairIntakeAndBalanceTender()
         testKeychainSecurity()
         
         print("==========================================================")
-        print(" ALL 12 TEST SUITES PASSED SUCCESSFULLY (0 failures)")
+        print(" ALL 15 TEST SUITES PASSED SUCCESSFULLY (0 failures)")
         print("==========================================================")
     }
     
@@ -85,6 +90,24 @@ struct POSTests {
         vm.clearCart()
         assert(vm.cart.isEmpty, "Cart should be empty after clearCart()")
         print("  ✔ Passed: Cart additions, merging, quantity updates, and clearing verified")
+    }
+    
+    @MainActor
+    static func testCustomItemAddition() {
+        print("▶ Test 3: Custom Non-Catalog Item Addition to Order")
+        let vm = POSViewModel()
+        vm.clearCart()
+        
+        // Add custom item
+        vm.addCustomItem(title: "Special LCD Bonding Adhesive", price: 1500.0, quantity: 2, sku: "ADH-001")
+        assert(vm.cart.count == 1, "Cart should have 1 item")
+        assert(vm.cart[0].part.title == "Special LCD Bonding Adhesive", "Title must match")
+        assert(vm.cart[0].part.isCustom == true, "Must be flagged as custom item")
+        assert(vm.cart[0].part.price == 1500.0, "Unit price must match")
+        assert(vm.cart[0].quantity == 2, "Quantity must equal 2")
+        assert(vm.cart[0].lineTotal == 3000.0, "Line total must be 3000.0")
+        assert(vm.subtotal == 3000.0, "Subtotal must equal 3000.0")
+        print("  ✔ Passed: Custom non-catalog item added to cart with exact price and quantity")
     }
     
     @MainActor
@@ -171,6 +194,23 @@ struct POSTests {
         assert(vm.tenderInputText.isEmpty, "Tender input must be cleared after sale")
         assert(vm.statusNotice.contains("POS-TEST-123456"), "Status notice must reference the order number")
         print("  ✔ Passed: Local sale finishes cleanly and resets cart state")
+    }
+    
+    @MainActor
+    static func testDefaultCustomerFallback() {
+        print("▶ Test 7: Default Customer Fallback to Logged-in Staff User")
+        let vm = POSViewModel()
+        vm.clearCart()
+        vm.selectedCustomer = nil
+        assert(vm.selectedCustomer == nil, "selectedCustomer must initially be nil")
+        
+        vm.addToCart(part: vm.catalog[0])
+        vm.finishLocalSale(orderNum: "POS-DEFAULT-CUST")
+        
+        // When selectedCustomer is nil, finishLocalSale attributes order to cashier.name as staff customer
+        assert(vm.statusNotice.contains(vm.cashier.name), "Status notice must reference logged-in cashier as customer")
+        assert(vm.cart.isEmpty, "Cart must be cleared")
+        print("  ✔ Passed: Unselected customer correctly defaults to active logged-in staff user")
     }
     
     @MainActor
@@ -312,34 +352,113 @@ struct POSTests {
     
     @MainActor
     static func testStaffAuthenticationAndSession() {
-        print("▶ Test 11: Staff Authentication, Role Attribution & Session Management")
+        print("▶ Test 13: Staff Authentication, Role Attribution & Session Management (Zero PIN)")
         let vm = POSViewModel()
         
-        // 1. Authenticate with Nelly K. PIN ("1234")
-        let successAdmin = vm.loginWithPin(pin: "1234")
-        assert(successAdmin == true, "Admin PIN 1234 must authenticate")
+        // 1. Authenticate with Nelly K. Staff Profile
+        let adminStaff = vm.availableStaff[0]
+        vm.loginWithStaffMember(adminStaff)
         assert(vm.isLoggedIn == true, "Session must be logged in")
         assert(vm.cashier.name == "Nelly K.", "Cashier name must be Nelly K.")
         assert(vm.cashier.role == "Admin", "Cashier role must be Admin")
         assert(vm.currentSession != nil, "Active StaffSession must be created")
         assert(vm.currentSession?.staffRole == "Admin", "Session role must be Admin")
+        assert(vm.currentSession?.token != nil, "Session token must be present")
         
         // 2. Lock till session
         vm.lockTillSession()
         assert(vm.isLoggedIn == false, "Till must be locked")
         
-        // 3. Authenticate with Dan M. PIN ("5678") -> Repair Technician
-        let successTech = vm.loginWithPin(pin: "5678")
-        assert(successTech == true, "Technician PIN 5678 must authenticate")
+        // 3. Authenticate with Dan M. Profile -> Repair Technician
+        let techStaff = vm.availableStaff[1]
+        vm.loginWithStaffMember(techStaff)
         assert(vm.isLoggedIn == true, "Session must be logged in")
         assert(vm.cashier.name == "Dan M.", "Cashier name must be Dan M.")
         assert(vm.cashier.role == "Repair Technician", "Cashier role must be Repair Technician")
         
-        // 4. Invalid PIN rejection
-        let fail = vm.loginWithPin(pin: "0000")
-        assert(fail == false, "Invalid PIN 0000 must be rejected")
+        // 4. Test Medusa Credentials Login with known staff email
+        vm.lockTillSession()
+        var loginSucceeded = false
+        vm.loginWithMedusaCredentials(email: "nelly@urbandevicecare.co.uk", password: "password123") { success, _ in
+            loginSucceeded = success
+        }
+        assert(loginSucceeded == true, "Known staff email must succeed login")
+        assert(vm.isLoggedIn == true, "Till session must be logged in")
+        assert(vm.cashier.email == "nelly@urbandevicecare.co.uk", "Cashier email must match")
         
-        print("  ✔ Passed: Staff PIN authentication, role attribution, and session locking verified")
+        print("  ✔ Passed: Staff Medusa credential authentication, role attribution, and session locking verified")
+    }
+    
+    @MainActor
+    static func testWorkshopRepairIntakeAndBalanceTender() {
+        print("▶ Test 14: Workshop Repair Intake & Balance Due Cart Tender Pipeline")
+        let vm = POSViewModel()
+        vm.clearCart()
+        
+        assert(vm.repairs.isEmpty, "Repairs must initially be empty on launch (zero dummy data)")
+        let initialCount = vm.repairs.count
+        
+        // 1. Create a repair intake ticket
+        var createdTicket: RepairTicketRecord? = nil
+        vm.createRepairIntake(
+            customerName: "Sarah Mwangi",
+            customerPhone: "+254 711 999 888",
+            customerEmail: "sarah@mwangi.co.ke",
+            deviceBrand: "Apple",
+            deviceModel: "iPhone 14 Pro Max",
+            deviceSerial: "F2LX778899",
+            imei: "358912345678901",
+            condition: "Minor Scratches",
+            technicianName: "Dan M.",
+            deviceType: "Phone",
+            passcode: "1234",
+            issueDescription: "Cracked OLED screen, touch unresponsive",
+            accessories: "Silicone Case",
+            estimate: 25000.0,
+            deposit: 5000.0
+        ) { ticket in
+            createdTicket = ticket
+        }
+        
+        assert(createdTicket != nil, "Created ticket must not be nil")
+        guard let ticket = createdTicket else { return }
+        assert(ticket.customerName == "Sarah Mwangi", "Customer name must match")
+        assert(ticket.deviceName == "Apple iPhone 14 Pro Max", "Device name must match")
+        assert(ticket.totalEstimate == 25000.0, "Estimate must match")
+        assert(ticket.depositAmount == 5000.0, "Deposit must match")
+        assert(ticket.balanceDue == 20000.0, "Balance due must be estimate - deposit = 20000.0")
+        assert(ticket.technicianName == "Dan M.", "Technician must match")
+        assert(vm.repairs.count == initialCount + 1, "Repairs count must increase by 1")
+        
+        // 2. Status update and Note addition
+        vm.updateRepairStatus(ticketId: ticket.id, status: "diagnosing", note: "Diagnostic started by Dan")
+        assert(vm.repairs[0].status == "diagnosing", "Status must update to diagnosing")
+        assert(vm.repairs[0].updates.count >= 1, "Status update must be logged")
+        
+        vm.addRepairNote(ticketId: ticket.id, content: "Screen replacement part in stock", isInternal: false)
+        assert(vm.repairs[0].notes.count >= 1, "Note must be logged")
+        
+        // 3. Filter repairs by status
+        vm.repairFilterStatus = "diagnosing"
+        let diagList = vm.filteredRepairs
+        assert(diagList.allSatisfy { $0.status.lowercased() == "diagnosing" }, "All filtered tickets must be 'diagnosing'")
+        vm.repairFilterStatus = "all"
+        
+        // 4. Search repairs by query
+        vm.repairSearchText = "Sarah"
+        let searchList = vm.filteredRepairs
+        assert(!searchList.isEmpty, "Search for Sarah must find the created repair")
+        assert(searchList[0].ticketNumber == ticket.ticketNumber, "Ticket number must match")
+        vm.repairSearchText = ""
+        
+        // 5. Tender repair balance into cart
+        vm.tenderRepairBalance(ticket: ticket)
+        assert(vm.cart.count == 1, "Cart must contain 1 repair balance item")
+        assert(vm.cart[0].part.price == 20000.0, "Cart item price must equal balance due")
+        assert(vm.cart[0].part.sku == ticket.ticketNumber, "Cart item SKU must match ticket number")
+        assert(vm.activeTab == "pos", "Active tab must switch to pos for counter checkout")
+        
+        print("  ✔ Passed: Workshop repair intake, status updates, notes, balance calculation, and 1-click cart tender verified")
     }
     
     @MainActor

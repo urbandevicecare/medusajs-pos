@@ -7,7 +7,10 @@ export default define.page(function PosPage(_props) {
     <>
       <Head>
         <title>Web POS • {STORE_NAME}</title>
-        <meta name="description" content="Workshop & Retail Point of Sale Terminal" />
+        <meta
+          name="description"
+          content="Workshop & Retail Point of Sale Terminal"
+        />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta name="view-transition" content="same-origin" />
       </Head>

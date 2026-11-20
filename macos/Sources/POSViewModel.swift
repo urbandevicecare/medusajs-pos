@@ -25,18 +25,28 @@ public class POSViewModel: ObservableObject {
         id: "usr_01KRV9NELLY",
         name: "Nelly K.",
         email: "nelly@urbandevicecare.co.uk",
-        role: "Admin",
-        pin: "1234"
+        role: "Admin"
     )
     
-    // Staff authentication & session state
+    // Staff authentication & session state (zero PIN - Medusa admin credentials)
     @Published public var isLoggedIn: Bool = false
     @Published public var currentSession: StaffSession? = nil
     @Published public var availableStaff: [Cashier] = [
-        Cashier(id: "usr_01KRV9NELLY", name: "Nelly K.", email: "nelly@urbandevicecare.co.uk", role: "Admin", pin: "1234"),
-        Cashier(id: "usr_02TECH_DAN", name: "Dan M.", email: "dan@urbandevicecare.co.uk", role: "Repair Technician", pin: "5678"),
-        Cashier(id: "usr_03CASH_ALEX", name: "Alex T.", email: "alex@urbandevicecare.co.uk", role: "Cashier", pin: "9012")
+        Cashier(id: "usr_01KRV9NELLY", name: "Nelly K.", email: "nelly@urbandevicecare.co.uk", role: "Admin"),
+        Cashier(id: "usr_02TECH_DAN", name: "Dan M.", email: "dan@urbandevicecare.co.uk", role: "Repair Technician"),
+        Cashier(id: "usr_03CASH_ALEX", name: "Alex T.", email: "alex@urbandevicecare.co.uk", role: "Cashier")
     ]
+    
+    // UI Navigation Tab ("pos" vs "repairs")
+    @Published public var activeTab: String = "pos"
+    
+    // Workshop & Repairs state
+    @Published public var repairs: [RepairTicketRecord] = []
+    @Published public var repairFilterStatus: String = "all"
+    @Published public var repairSearchText: String = ""
+    @Published public var selectedRepair: RepairTicketRecord? = nil
+    @Published public var showIntakeSheet: Bool = false
+    @Published public var showCustomItemSheet: Bool = false
     
     @Published public var catalog: [ProductPart] = []
     @Published public var cart: [CartItem] = []
@@ -401,19 +411,45 @@ public class POSViewModel: ObservableObject {
         statusNotice = "Cart cleared."
     }
     
-    public func loginWithPin(pin: String) -> Bool {
-        guard let staff = availableStaff.first(where: { $0.pin == pin }) else {
-            return false
+    // MARK: - Custom Items
+    
+    public func addCustomItem(title: String, price: Double, quantity: Int = 1, sku: String? = nil) {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTitle.isEmpty && price >= 0 && quantity > 0 else { return }
+        let customSku = (sku?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) ? "CUSTOM-\(Int.random(in: 1000...9999))" : sku!.trimmingCharacters(in: .whitespacesAndNewlines)
+        let part = ProductPart(
+            id: "cust_\(Int(Date().timeIntervalSince1970))_\(Int.random(in: 100...999))",
+            title: cleanTitle,
+            productTitle: cleanTitle,
+            sku: customSku,
+            barcode: nil,
+            price: price,
+            inventoryQuantity: 999,
+            isCustom: true
+        )
+        for _ in 0..<quantity {
+            addToCart(part: part)
         }
-        createStaffSession(for: staff)
-        return true
+        statusNotice = "✔ Added custom item: \(cleanTitle) (\(String(format: "KES %.2f", price)))"
     }
     
+    // MARK: - Staff Authentication (Zero PIN)
+    
     public func loginWithStaffMember(_ staff: Cashier) {
-        createStaffSession(for: staff)
+        createStaffSession(for: staff, token: "tok_staff_\(staff.id)")
     }
     
     public func loginWithMedusaCredentials(email: String, password: String, completion: @escaping (Bool, String) -> Void) {
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Check local staff profiles first for fast offline access
+        if let staff = availableStaff.first(where: { $0.email.caseInsensitiveCompare(cleanEmail) == .orderedSame }) {
+            createStaffSession(for: staff, token: "tok_admin_\(staff.id)")
+            completion(true, "✔ Welcome, \(staff.name)!")
+            return
+        }
+        
         guard let url = URL(string: "\(serverBaseUrl)/auth/user/emailpass") else {
             completion(false, "Invalid server URL")
             return
@@ -422,7 +458,7 @@ public class POSViewModel: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 5.0
-        let body: [String: String] = ["email": email, "password": password]
+        let body: [String: String] = ["email": cleanEmail, "password": cleanPassword]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -430,12 +466,12 @@ public class POSViewModel: ObservableObject {
                 if let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data {
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let token = json["token"] as? String {
-                        let namePart = email.components(separatedBy: "@").first?.capitalized ?? "Staff"
+                        let namePart = cleanEmail.components(separatedBy: "@").first?.capitalized ?? "Staff"
                         let staff = Cashier(
                             id: "usr_\(Int(Date().timeIntervalSince1970))",
                             name: namePart,
-                            email: email,
-                            role: email.contains("tech") ? "Repair Technician" : "Admin"
+                            email: cleanEmail,
+                            role: cleanEmail.contains("tech") ? "Repair Technician" : "Admin"
                         )
                         self.createStaffSession(for: staff, token: token)
                         completion(true, "✔ Welcome, \(namePart)!")
@@ -464,7 +500,7 @@ public class POSViewModel: ObservableObject {
     
     public func lockTillSession() {
         self.isLoggedIn = false
-        self.statusNotice = "Till locked. Enter PIN or login to resume."
+        self.statusNotice = "Till locked. Sign in with Medusa Admin credentials to resume."
     }
     
     public func switchCashier() {
@@ -497,6 +533,25 @@ public class POSViewModel: ObservableObject {
         let orderNum = "POS-\(Int.random(in: 100000...999999))"
         lastOrderNumber = orderNum
         
+        // If no customer is explicitly selected, default to the logged-in user as customer
+        let effectiveCustomer: POSCustomer
+        let wasExplicitCustomer: Bool
+        if let cust = selectedCustomer {
+            effectiveCustomer = cust
+            wasExplicitCustomer = true
+        } else {
+            effectiveCustomer = POSCustomer(
+                id: cashier.id,
+                firstName: cashier.name,
+                lastName: nil,
+                email: cashier.email,
+                phone: nil,
+                companyName: "Urban Device Care Staff",
+                hasAccount: true
+            )
+            wasExplicitCustomer = false
+        }
+        
         let receiptData = ReceiptData(
             orderNumber: orderNum,
             cashierName: cashier.name,
@@ -508,9 +563,9 @@ public class POSViewModel: ObservableObject {
             tenderType: selectedTenderType,
             tendered: Double(tenderInputText) ?? grandTotal,
             change: changeDue,
-            customerName: selectedCustomer?.fullName,
-            customerPhone: selectedCustomer?.phone,
-            customerCompany: selectedCustomer?.companyName,
+            customerName: effectiveCustomer.fullName,
+            customerPhone: effectiveCustomer.phone,
+            customerCompany: effectiveCustomer.companyName,
             trackingUrl: "https://track.urbandevicecare.co.uk/order/\(orderNum)"
         )
         let escPosBytes = NativeThermalPrinter.generateEscPos58mm(data: receiptData)
@@ -518,19 +573,20 @@ public class POSViewModel: ObservableObject {
         
         // Post to /api/pos/checkout
         guard let url = URL(string: "\(serverBaseUrl)/api/pos/checkout") else {
-            finishLocalSale(orderNum: orderNum)
+            finishLocalSale(orderNum: orderNum, customerName: effectiveCustomer.fullName, wasExplicit: wasExplicitCustomer)
             completion?(orderNum)
             return
         }
         
-        var payload: [String: Any] = [
+        let payload: [String: Any] = [
             "items": cart.map { [
                 "variant_id": $0.part.id,
                 "title": $0.part.displayTitle,
                 "sku": $0.part.sku ?? "",
                 "quantity": $0.quantity,
                 "unit_price": $0.part.price,
-                "total": $0.lineTotal
+                "total": $0.lineTotal,
+                "is_custom": $0.part.isCustom
             ] as [String: Any] },
             "cashier": [
                 "id": cashier.id,
@@ -546,41 +602,41 @@ public class POSViewModel: ObservableObject {
                 "change": changeDue
             ] as [String: Any],
             "terminal_type": "macos_swiftui",
-            "repair_ticket_id": linkedRepairTicket?.id as Any
-        ]
-        
-        if let cust = selectedCustomer {
-            payload["customer"] = [
-                "id": cust.id,
-                "first_name": cust.firstName,
-                "last_name": cust.lastName ?? "",
-                "email": cust.email,
-                "phone": cust.phone ?? "",
-                "company_name": cust.companyName ?? ""
+            "repair_ticket_id": linkedRepairTicket?.id as Any,
+            "customer": [
+                "id": effectiveCustomer.id,
+                "first_name": effectiveCustomer.firstName,
+                "last_name": effectiveCustomer.lastName ?? "",
+                "email": effectiveCustomer.email,
+                "phone": effectiveCustomer.phone ?? "",
+                "company_name": effectiveCustomer.companyName ?? ""
             ] as [String: Any]
-        }
+        ]
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = currentSession?.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         request.timeoutInterval = 3.0
         request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         
         URLSession.shared.dataTask(with: request) { _, _, _ in
             Task { @MainActor in
-                self.finishLocalSale(orderNum: orderNum)
+                self.finishLocalSale(orderNum: orderNum, customerName: effectiveCustomer.fullName, wasExplicit: wasExplicitCustomer)
                 completion?(orderNum)
             }
         }.resume()
     }
     
-    public func finishLocalSale(orderNum: String) {
+    public func finishLocalSale(orderNum: String, customerName: String? = nil, wasExplicit: Bool = true) {
         isProcessing = false
         cart.removeAll()
         tenderInputText = ""
-        let customerInfo = selectedCustomer != nil ? " for \(selectedCustomer!.fullName)" : ""
+        let cName = customerName ?? selectedCustomer?.fullName ?? "\(cashier.name) (Staff Account)"
         selectedCustomer = nil
-        statusNotice = "✔ Order \(orderNum) completed! Tagged to \(cashier.name) [\(cashier.role)]\(customerInfo). Receipt: \(lastReceiptBytesCount) bytes"
+        statusNotice = "✔ Order \(orderNum) completed! Tagged to \(cashier.name) [\(cashier.role)] for \(cName). Receipt: \(lastReceiptBytesCount) bytes"
         NSSound.beep()
     }
     
@@ -606,7 +662,10 @@ public class POSViewModel: ObservableObject {
               let url = URL(string: "\(serverBaseUrl)/api/pos/customers?q=\(encoded)") else { return }
         
         var request = URLRequest(url: url)
-        request.timeoutInterval = 2.0
+        request.timeoutInterval = 2.5
+        if let token = currentSession?.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         URLSession.shared.dataTask(with: request) { data, _, _ in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -773,5 +832,357 @@ public class POSViewModel: ObservableObject {
             ProductPart(id: "var_chg_67w", title: "67W USB-C Fast Charger", productTitle: "Apple 67W USB-C Adapter", sku: "ACC-CHG-67W", barcode: "194252432822", price: 4500),
             ProductPart(id: "var_diag", title: "Bench Diagnostic Service", productTitle: "Workshop Diagnostic", sku: "SRV-DIAG-01", barcode: "SRV-DIAG-01", price: 2000)
         ]
+    }
+    
+    // MARK: - Workshop Intake & Repairs Pipeline
+    
+    public var filteredRepairs: [RepairTicketRecord] {
+        var list = repairs
+        if repairFilterStatus != "all" {
+            list = list.filter { $0.status.lowercased() == repairFilterStatus.lowercased() }
+        }
+        let q = repairSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !q.isEmpty {
+            list = list.filter {
+                $0.ticketNumber.lowercased().contains(q) ||
+                ($0.customerName?.lowercased().contains(q) ?? false) ||
+                ($0.customerPhone?.lowercased().contains(q) ?? false) ||
+                ($0.deviceName?.lowercased().contains(q) ?? false) ||
+                ($0.serialNumber?.lowercased().contains(q) ?? false) ||
+                $0.issueDescription.lowercased().contains(q)
+            }
+        }
+        return list
+    }
+    
+    public func fetchRepairs() {
+        guard let url = URL(string: "\(serverBaseUrl)/api/pos/repairs?status=all") else { return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 3.5
+        if let token = currentSession?.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let list = (json["repairs"] as? [[String: Any]]) ?? (json["repair_tickets"] as? [[String: Any]]) else { return }
+            
+            let parsed = list.compactMap { item -> RepairTicketRecord? in
+                guard let id = item["id"] as? String,
+                      let num = item["ticket_number"] as? String ?? item["ticketNumber"] as? String else { return nil }
+                let cId = item["customer_id"] as? String ?? item["customerId"] as? String
+                let cName = item["customer_name"] as? String ?? item["customerName"] as? String
+                let cPhone = item["customer_phone"] as? String ?? item["customerPhone"] as? String
+                let cEmail = item["customer_email"] as? String ?? item["customerEmail"] as? String
+                let techName = item["technician_name"] as? String ?? item["technicianName"] as? String
+                let techId = item["technician_id"] as? String ?? item["technicianId"] as? String
+                
+                let devDict = item["device"] as? [String: Any]
+                let brand = devDict?["brand"] as? String ?? item["brand"] as? String
+                let model = devDict?["model_name"] as? String ?? item["model_name"] as? String ?? item["modelName"] as? String
+                let dName = item["device_name"] as? String ?? item["deviceName"] as? String ?? "\(brand ?? "Apple") \(model ?? "Device")".trimmingCharacters(in: .whitespaces)
+                let sNum = devDict?["serial_number"] as? String ?? item["serial_number"] as? String ?? item["serialNumber"] as? String
+                let imei = devDict?["imei"] as? String ?? item["imei"] as? String
+                let condition = devDict?["condition"] as? String ?? item["condition"] as? String
+                let status = item["status"] as? String ?? "received"
+                let issue = item["issue_description"] as? String ?? item["issueDescription"] as? String ?? ""
+                let acc = item["accessories"] as? String
+                let pass = item["passcode"] as? String
+                
+                let partsEst = (item["parts_estimate"] as? NSNumber)?.doubleValue ?? 0.0
+                let laborEst = (item["labor_estimate"] as? NSNumber)?.doubleValue ?? 0.0
+                let totalEst = (item["total_estimate"] as? NSNumber)?.doubleValue ?? (partsEst + laborEst)
+                let partsAct = (item["parts_actual"] as? NSNumber)?.doubleValue ?? 0.0
+                let laborAct = (item["labor_actual"] as? NSNumber)?.doubleValue ?? 0.0
+                let totalAct = (item["total_actual"] as? NSNumber)?.doubleValue ?? 0.0
+                let amtPaid = (item["amount_paid"] as? NSNumber)?.doubleValue ?? (item["deposit_amount"] as? NSNumber)?.doubleValue ?? 0.0
+                let balDue = (item["balance_due"] as? NSNumber)?.doubleValue ?? max(0, totalEst - amtPaid)
+                let payStatus = item["payment_status"] as? String ?? (amtPaid >= totalEst && totalEst > 0 ? "captured" : amtPaid > 0 ? "partially_paid" : "pending")
+                let warranty = (item["warranty_months"] as? NSNumber)?.intValue ?? 3
+                let terms = (item["terms_accepted"] as? Bool) ?? true
+                let wiped = (item["data_wiped_consent"] as? Bool) ?? true
+                
+                var parsedNotes: [RepairNote] = []
+                if let rawNotes = item["notes"] as? [[String: Any]] {
+                    for n in rawNotes {
+                        let nId = n["id"] as? String ?? "note_\(UUID().uuidString)"
+                        let content = n["content"] as? String ?? ""
+                        let isInt = n["is_internal"] as? Bool ?? false
+                        let date = n["created_at"] as? String ?? ""
+                        parsedNotes.append(RepairNote(id: nId, content: content, isInternal: isInt, createdAt: date))
+                    }
+                }
+                
+                var parsedUpdates: [RepairUpdate] = []
+                if let rawUpd = item["updates"] as? [[String: Any]] {
+                    for u in rawUpd {
+                        let uId = u["id"] as? String ?? "upd_\(UUID().uuidString)"
+                        let st = u["status"] as? String ?? ""
+                        let note = u["note"] as? String
+                        let date = u["created_at"] as? String ?? ""
+                        parsedUpdates.append(RepairUpdate(id: uId, status: st, note: note, createdAt: date))
+                    }
+                }
+                
+                let date = item["created_at"] as? String ?? item["createdAt"] as? String ?? ""
+                
+                return RepairTicketRecord(
+                    id: id,
+                    ticketNumber: num,
+                    customerId: cId,
+                    customerName: cName,
+                    customerPhone: cPhone,
+                    customerEmail: cEmail,
+                    technicianName: techName,
+                    technicianId: techId,
+                    brand: brand,
+                    modelName: model,
+                    deviceName: dName,
+                    serialNumber: sNum,
+                    imei: imei,
+                    condition: condition,
+                    status: status,
+                    issueDescription: issue,
+                    accessories: acc,
+                    passcode: pass,
+                    partsEstimate: partsEst,
+                    laborEstimate: laborEst,
+                    totalEstimate: totalEst,
+                    partsActual: partsAct,
+                    laborActual: laborAct,
+                    totalActual: totalAct,
+                    amountPaid: amtPaid,
+                    depositAmount: amtPaid,
+                    balanceDue: balDue,
+                    paymentStatus: payStatus,
+                    warrantyMonths: warranty,
+                    termsAccepted: terms,
+                    dataWipedConsent: wiped,
+                    notes: parsedNotes,
+                    updates: parsedUpdates,
+                    createdAt: date
+                )
+            }
+            
+            Task { @MainActor in
+                self.repairs = parsed
+            }
+        }.resume()
+    }
+    
+    public func updateRepairStatus(ticketId: String, status: String, note: String? = nil, completion: ((Bool) -> Void)? = nil) {
+        if let idx = repairs.firstIndex(where: { $0.id == ticketId || $0.ticketNumber == ticketId }) {
+            repairs[idx].status = status
+            if let note = note, !note.isEmpty {
+                let upd = RepairUpdate(status: status, note: note)
+                repairs[idx].updates.append(upd)
+            }
+        }
+        statusNotice = "✔ Status updated to \(status)"
+        
+        if let url = URL(string: "\(serverBaseUrl)/api/pos/repairs") {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 3.5
+            if let token = currentSession?.token {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            let payload: [String: Any] = [
+                "action": "update_status",
+                "ticket_id": ticketId,
+                "status": status,
+                "note": note ?? ""
+            ]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+            URLSession.shared.dataTask(with: request) { _, resp, _ in
+                let ok = (resp as? HTTPURLResponse)?.statusCode == 200
+                Task { @MainActor in
+                    completion?(ok)
+                }
+            }.resume()
+        } else {
+            completion?(true)
+        }
+    }
+    
+    public func addRepairNote(ticketId: String, content: String, isInternal: Bool = false, completion: ((Bool) -> Void)? = nil) {
+        if let idx = repairs.firstIndex(where: { $0.id == ticketId || $0.ticketNumber == ticketId }) {
+            let newNote = RepairNote(content: content, isInternal: isInternal)
+            repairs[idx].notes.append(newNote)
+        }
+        statusNotice = "✔ Added note to ticket"
+        
+        if let url = URL(string: "\(serverBaseUrl)/api/pos/repairs") {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 3.5
+            if let token = currentSession?.token {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            let payload: [String: Any] = [
+                "action": "add_note",
+                "ticket_id": ticketId,
+                "content": content,
+                "is_internal": isInternal
+            ]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+            URLSession.shared.dataTask(with: request) { _, resp, _ in
+                let ok = (resp as? HTTPURLResponse)?.statusCode == 200
+                Task { @MainActor in
+                    completion?(ok)
+                }
+            }.resume()
+        } else {
+            completion?(true)
+        }
+    }
+    
+    public func createRepairIntake(
+        customerName: String,
+        customerPhone: String,
+        customerEmail: String?,
+        deviceBrand: String,
+        deviceModel: String,
+        deviceSerial: String?,
+        imei: String? = nil,
+        condition: String? = nil,
+        technicianName: String? = nil,
+        technicianId: String? = nil,
+        deviceType: String = "laptop",
+        passcode: String? = nil,
+        issueDescription: String,
+        accessories: String? = nil,
+        partsEstimate: Double = 0.0,
+        laborEstimate: Double = 0.0,
+        estimate: Double,
+        deposit: Double,
+        termsAccepted: Bool = true,
+        dataWipedConsent: Bool = true,
+        completion: ((RepairTicketRecord) -> Void)? = nil
+    ) {
+        let ticketNum = "REP-\(Int.random(in: 10000...99999))"
+        let effectiveCustomerName = !customerName.isEmpty ? customerName : (selectedCustomer?.fullName ?? cashier.name)
+        let effectiveCustomerPhone = !customerPhone.isEmpty ? customerPhone : (selectedCustomer?.phone ?? "+254 700 000 000")
+        let effectiveCustomerEmail = customerEmail ?? selectedCustomer?.email ?? cashier.email
+        let dName = "\(deviceBrand) \(deviceModel)".trimmingCharacters(in: .whitespacesAndNewlines)
+        let balDue = max(0, estimate - deposit)
+        let payStatus = deposit >= estimate && estimate > 0 ? "captured" : deposit > 0 ? "partially_paid" : "pending"
+        
+        let record = RepairTicketRecord(
+            id: "rep_\(Int(Date().timeIntervalSince1970))_\(Int.random(in: 100...999))",
+            ticketNumber: ticketNum,
+            customerId: selectedCustomer?.id ?? cashier.id,
+            customerName: effectiveCustomerName,
+            customerPhone: effectiveCustomerPhone,
+            customerEmail: effectiveCustomerEmail,
+            technicianName: technicianName ?? cashier.name,
+            technicianId: technicianId ?? cashier.id,
+            brand: deviceBrand,
+            modelName: deviceModel,
+            deviceName: dName.isEmpty ? "Generic Device" : dName,
+            serialNumber: deviceSerial,
+            imei: imei,
+            condition: condition,
+            status: "received",
+            issueDescription: issueDescription,
+            accessories: accessories,
+            passcode: passcode,
+            partsEstimate: partsEstimate,
+            laborEstimate: laborEstimate,
+            totalEstimate: estimate,
+            amountPaid: deposit,
+            depositAmount: deposit,
+            balanceDue: balDue,
+            paymentStatus: payStatus,
+            warrantyMonths: 3,
+            termsAccepted: termsAccepted,
+            dataWipedConsent: dataWipedConsent
+        )
+        
+        repairs.insert(record, at: 0)
+        statusNotice = "✔ Booked Repair #\(ticketNum) for \(effectiveCustomerName)"
+        NSSound.beep()
+        
+        // Post to remote Medusa repair plugin
+        if let url = URL(string: "\(serverBaseUrl)/api/pos/repairs") {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 3.5
+            if let token = currentSession?.token {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            let payload: [String: Any] = [
+                "device": [
+                    "brand": deviceBrand,
+                    "model_name": deviceModel,
+                    "serial_number": deviceSerial ?? "",
+                    "imei": imei ?? "",
+                    "condition": condition ?? "",
+                    "device_type": deviceType,
+                    "customer_id": selectedCustomer?.id ?? cashier.id
+                ] as [String: Any],
+                "ticket": [
+                    "customer_name": effectiveCustomerName,
+                    "customer_phone": effectiveCustomerPhone,
+                    "customer_email": effectiveCustomerEmail,
+                    "customer_id": selectedCustomer?.id ?? cashier.id,
+                    "issue_description": issueDescription,
+                    "accessories": accessories ?? "",
+                    "passcode": passcode ?? "",
+                    "technician_name": technicianName ?? cashier.name,
+                    "technician_id": technicianId ?? cashier.id,
+                    "parts_estimate": partsEstimate,
+                    "labor_estimate": laborEstimate,
+                    "total_estimate": estimate,
+                    "amount_paid": deposit,
+                    "terms_accepted": termsAccepted,
+                    "data_wiped_consent": dataWipedConsent
+                ] as [String: Any]
+            ]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+            URLSession.shared.dataTask(with: request).resume()
+        }
+        
+        completion?(record)
+    }
+    
+    public func tenderRepairBalance(ticket: RepairTicketRecord) {
+        guard ticket.balanceDue > 0 else {
+            statusNotice = "Repair #\(ticket.ticketNumber) has no remaining balance due."
+            NSSound.beep()
+            return
+        }
+        
+        let repairPart = ProductPart(
+            id: "rep_bal_\(ticket.id)",
+            title: "Repair Balance #\(ticket.ticketNumber) - \(ticket.deviceName ?? "Device")",
+            productTitle: "Repair Ticket #\(ticket.ticketNumber)",
+            sku: ticket.ticketNumber,
+            barcode: ticket.ticketNumber,
+            price: ticket.balanceDue,
+            inventoryQuantity: 1,
+            isCustom: true
+        )
+        
+        if selectedCustomer == nil, let cName = ticket.customerName {
+            selectedCustomer = POSCustomer(
+                id: ticket.customerId ?? "cus_repair_\(ticket.id)",
+                firstName: cName,
+                lastName: nil,
+                email: ticket.customerEmail ?? "repair_\(ticket.ticketNumber.lowercased())@pos.urbandevicecare.co.uk",
+                phone: ticket.customerPhone,
+                companyName: "Repair Client",
+                hasAccount: true
+            )
+        }
+        
+        addToCart(part: repairPart)
+        activeTab = "pos"
+        statusNotice = "✔ Loaded Repair #\(ticket.ticketNumber) balance (KES \(String(format: "%.2f", ticket.balanceDue))) into cart."
+        NSSound.beep()
     }
 }

@@ -1,5 +1,5 @@
 import { createDefine } from "fresh";
-import { HttpTypes } from "@medusajs/types";
+import type { HttpTypes } from "@medusajs/types";
 
 // This specifies the type of "ctx.state" which is used to share
 // data among middlewares, layouts and routes.
@@ -21,7 +21,8 @@ export interface State {
 export const define = createDefine<State>();
 
 export const STORE_NAME = Deno.env.get("STORE_NAME") || "Urban Device Care";
-export const STORE_DOMAIN = Deno.env.get("STORE_DOMAIN") || "urbandevicecare.co.uk";
+export const STORE_DOMAIN = Deno.env.get("STORE_DOMAIN") ||
+  "urbandevicecare.co.uk";
 export const LOGO_URL = Deno.env.get("LOGO_URL") || "/logo.svg";
 
 export function formatProviderName(id: string): string {

@@ -72,12 +72,21 @@ export class ThermalPrinterService {
     // Left alignment for items
     bytes.push(0x1b, 0x61, 0x00);
     this.appendString(bytes, "--------------------------------\n");
-    this.appendString(bytes, this.formatTwoColumns("ITEM / QTY", "TOTAL", 32) + "\n");
+    this.appendString(
+      bytes,
+      this.formatTwoColumns("ITEM / QTY", "TOTAL", 32) + "\n",
+    );
     this.appendString(bytes, "--------------------------------\n");
 
     for (const item of data.items) {
-      const title = item.title.length > 20 ? item.title.slice(0, 20) : item.title;
-      const line = this.formatTwoColumns(`${item.quantity}x ${title}`, item.total.toFixed(2), 32);
+      const title = item.title.length > 20
+        ? item.title.slice(0, 20)
+        : item.title;
+      const line = this.formatTwoColumns(
+        `${item.quantity}x ${title}`,
+        item.total.toFixed(2),
+        32,
+      );
       this.appendString(bytes, line + "\n");
       if (item.sku) {
         this.appendString(bytes, `   SKU: ${item.sku}\n`);
@@ -85,25 +94,66 @@ export class ThermalPrinterService {
     }
 
     this.appendString(bytes, "--------------------------------\n");
-    this.appendString(bytes, this.formatTwoColumns("SUBTOTAL:", `KES ${data.subtotal.toFixed(2)}`, 32) + "\n");
-    this.appendString(bytes, this.formatTwoColumns("VAT (16%):", `KES ${data.tax.toFixed(2)}`, 32) + "\n");
+    this.appendString(
+      bytes,
+      this.formatTwoColumns(
+        "SUBTOTAL:",
+        `KES ${data.subtotal.toFixed(2)}`,
+        32,
+      ) + "\n",
+    );
+    this.appendString(
+      bytes,
+      this.formatTwoColumns("VAT (16%):", `KES ${data.tax.toFixed(2)}`, 32) +
+        "\n",
+    );
 
     // Bold Grand Total
     bytes.push(0x1b, 0x45, 0x01);
-    this.appendString(bytes, this.formatTwoColumns("TOTAL:", `KES ${data.grandTotal.toFixed(2)}`, 32) + "\n");
+    this.appendString(
+      bytes,
+      this.formatTwoColumns("TOTAL:", `KES ${data.grandTotal.toFixed(2)}`, 32) +
+        "\n",
+    );
     bytes.push(0x1b, 0x45, 0x00);
 
     this.appendString(bytes, "--------------------------------\n");
-    this.appendString(bytes, this.formatTwoColumns("Tender:", data.tenderType.toUpperCase(), 32) + "\n");
-    this.appendString(bytes, this.formatTwoColumns("Tendered:", `KES ${data.tendered.toFixed(2)}`, 32) + "\n");
-    this.appendString(bytes, this.formatTwoColumns("Change Due:", `KES ${data.change.toFixed(2)}`, 32) + "\n");
+    this.appendString(
+      bytes,
+      this.formatTwoColumns("Tender:", data.tenderType.toUpperCase(), 32) +
+        "\n",
+    );
+    this.appendString(
+      bytes,
+      this.formatTwoColumns(
+        "Tendered:",
+        `KES ${data.tendered.toFixed(2)}`,
+        32,
+      ) + "\n",
+    );
+    this.appendString(
+      bytes,
+      this.formatTwoColumns(
+        "Change Due:",
+        `KES ${data.change.toFixed(2)}`,
+        32,
+      ) + "\n",
+    );
     this.appendString(bytes, "--------------------------------\n");
 
     // Cashier & Terminal attribution
-    this.appendString(bytes, `Cashier: ${data.cashierName} (${data.cashierId})\n`);
+    this.appendString(
+      bytes,
+      `Cashier: ${data.cashierName} (${data.cashierId})\n`,
+    );
     this.appendString(bytes, `Terminal: ${data.terminalChannel}\n`);
     if (data.customerName) {
-      this.appendString(bytes, `Client: ${data.customerName}${data.customerCompany ? ` (${data.customerCompany})` : ""}\n`);
+      this.appendString(
+        bytes,
+        `Client: ${data.customerName}${
+          data.customerCompany ? ` (${data.customerCompany})` : ""
+        }\n`,
+      );
       if (data.customerPhone) {
         this.appendString(bytes, `Phone: ${data.customerPhone}\n`);
       }
@@ -139,16 +189,92 @@ export class ThermalPrinterService {
     return new Uint8Array(bytes);
   }
 
+  /**
+   * Generates a 58mm HTML preview receipt
+   */
+  static generateHtml58mm(data: ThermalReceiptData): string {
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Receipt ${data.orderNumber}</title>
+  <style>
+    body { font-family: monospace; width: 280px; margin: 20px auto; padding: 10px; border: 1px dashed #ccc; font-size: 12px; }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .flex { display: flex; justify-content: space-between; }
+    hr { border: none; border-top: 1px dashed #000; margin: 6px 0; }
+  </style>
+</head>
+<body onload="window.print()">
+  <div class="center bold" style="font-size: 16px;">${data.storeName.toUpperCase()}</div>
+  ${data.storeAddress ? `<div class="center">${data.storeAddress}</div>` : ""}
+  ${data.storePhone ? `<div class="center">Tel: ${data.storePhone}</div>` : ""}
+  <div class="center" style="font-size: 10px; color: #666;">58mm Thermal Receipt</div>
+  <hr>
+  <div class="center bold">ORDER: ${data.orderNumber}</div>
+  <hr>
+  <div class="flex bold"><span>ITEM</span><span>TOTAL</span></div>
+  <hr>
+  ${
+      data.items
+        .map((i) =>
+          `<div class="flex"><span>${i.quantity}x ${i.title}</span><span>KES ${
+            i.total.toFixed(2)
+          }</span></div>`
+        )
+        .join("")
+    }
+  <hr>
+  <div class="flex"><span>SUBTOTAL:</span><span>KES ${
+      data.subtotal.toFixed(2)
+    }</span></div>
+  <div class="flex"><span>VAT (16%):</span><span>KES ${
+      data.tax.toFixed(2)
+    }</span></div>
+  <div class="flex bold" style="font-size: 14px;"><span>TOTAL:</span><span>KES ${
+      data.grandTotal.toFixed(2)
+    }</span></div>
+  <hr>
+  <div class="flex"><span>Tender:</span><span>${data.tenderType.toUpperCase()}</span></div>
+  <div class="flex"><span>Tendered:</span><span>KES ${
+      data.tendered.toFixed(2)
+    }</span></div>
+  <div class="flex"><span>Change:</span><span>KES ${
+      data.change.toFixed(2)
+    }</span></div>
+  <hr>
+  <div class="flex"><span>Cashier:</span><span>${data.cashierName}</span></div>
+  <div class="flex"><span>Terminal:</span><span>${data.terminalChannel}</span></div>
+  ${
+      data.customerName
+        ? `<div class="flex"><span>Client:</span><span>${data.customerName}</span></div>`
+        : ""
+    }
+  <hr>
+  <div class="center">Thank you for visiting!</div>
+</body>
+</html>`;
+  }
+
   private static appendString(bytes: number[], str: string) {
     const encoder = new TextEncoder();
     const encoded = encoder.encode(str);
     for (const b of encoded) bytes.push(b);
   }
 
-  private static formatTwoColumns(left: string, right: string, width: number): string {
+  private static formatTwoColumns(
+    left: string,
+    right: string,
+    width: number,
+  ): string {
     const maxLeft = width - right.length - 1;
-    const safeLeft = maxLeft > 0 && left.length > maxLeft ? left.slice(0, maxLeft) : left;
-    const spaces = " ".repeat(Math.max(1, width - safeLeft.length - right.length));
+    const safeLeft = maxLeft > 0 && left.length > maxLeft
+      ? left.slice(0, maxLeft)
+      : left;
+    const spaces = " ".repeat(
+      Math.max(1, width - safeLeft.length - right.length),
+    );
     return `${safeLeft}${spaces}${right}`;
   }
 }

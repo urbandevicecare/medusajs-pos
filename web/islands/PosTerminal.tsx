@@ -1,22 +1,31 @@
-import { useState, useEffect, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import {
-  Printer,
+  ArrowLeft,
   Barcode,
+  Building,
+  CheckCircle2,
+  Clock,
+  DollarSign,
+  ExternalLink,
+  FileText,
+  Key,
+  Laptop,
+  LogOut,
+  Mail,
+  Minus,
+  Phone,
+  Plus,
+  Printer,
+  RefreshCw,
+  Search,
+  ShoppingCart,
+  Smartphone,
+  Tag,
+  Trash2,
   User,
   UserPlus,
-  Building,
-  Phone,
-  Mail,
+  Wrench,
   X,
-  Lock,
-  ShoppingCart,
-  Trash2,
-  Plus,
-  Minus,
-  Search,
-  ArrowLeft,
-  CheckCircle2,
-  ExternalLink,
 } from "lucide-preact";
 
 interface ProductPart {
@@ -25,6 +34,7 @@ interface ProductPart {
   sku?: string;
   barcode?: string;
   price: number;
+  isCustom?: boolean;
 }
 
 interface CartItem {
@@ -33,10 +43,12 @@ interface CartItem {
   quantity: number;
 }
 
-interface Cashier {
+export interface AdminUser {
   id: string;
-  name: string;
   email: string;
+  first_name: string;
+  last_name?: string;
+  role?: string;
 }
 
 export interface POSCustomer {
@@ -50,42 +62,166 @@ export interface POSCustomer {
   metadata?: Record<string, unknown>;
 }
 
+export interface RepairTicketRecord {
+  id: string;
+  ticket_number: string;
+  customer_id?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  customer_email?: string;
+  technician_id?: string;
+  technician_name?: string;
+  device?: {
+    id?: string;
+    brand: string;
+    model_name: string;
+    serial_number?: string;
+    imei?: string;
+    condition?: string;
+    device_type?: string;
+  };
+  device_name?: string;
+  serial_number?: string;
+  status:
+    | "pending_dropoff"
+    | "received"
+    | "diagnosing"
+    | "awaiting_approval"
+    | "repairing"
+    | "ready"
+    | "completed"
+    | "collected"
+    | "cancelled"
+    | "refunded"
+    | string;
+  issue_description: string;
+  accessories?: string;
+  passcode?: string;
+  parts_estimate?: number;
+  labor_estimate?: number;
+  total_estimate?: number;
+  parts_actual?: number;
+  labor_actual?: number;
+  total_actual?: number;
+  amount_paid?: number;
+  payment_status?: string;
+  deposit_amount?: number;
+  balance_due?: number;
+  warranty_months?: number;
+  estimated_completion?: string;
+  terms_accepted?: boolean;
+  data_wiped_consent?: boolean;
+  notes?: Array<{
+    id: string;
+    content: string;
+    is_internal: boolean;
+    created_at: string;
+  }>;
+  updates?: Array<{
+    id: string;
+    message: string;
+    author_type: string;
+    author_id?: string;
+    created_at: string;
+  }>;
+  created_at: string;
+}
+
 export default function PosTerminal() {
-  const [cashier, setCashier] = useState<Cashier>({
-    id: "usr_01KRV9NELLY",
-    name: "Nelly K.",
-    email: "nelly@urbandevicecare.co.uk",
-  });
+  // Session & Authentication state (Unauthenticated by default until Medusa login)
+  const [activeAdmin, setActiveAdmin] = useState<AdminUser | null>(null);
+  const [adminToken, setAdminToken] = useState<string | null>(null);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  // Tab state: "counter" (POS Register) or "workshop" (Workshop Intake & Repairs)
+  const [activeTab, setActiveTab] = useState<"counter" | "workshop">("counter");
+
+  // Terminal Channel
   const [channel] = useState("web_counter_01");
 
-  const [catalog] = useState<ProductPart[]>([
-    { id: "var_kb_a2681", title: "MacBook Air M2 13\" (A2681) Keyboard", sku: "NP04011448", barcode: "NP04011448", price: 6500 },
-    { id: "var_bat_a2442", title: "MacBook Pro 14\" (A2442) Battery OEM", sku: "NP04019921", barcode: "NP04019921", price: 12000 },
-    { id: "var_screen_a2338", title: "MacBook Pro M1 (A2338) Retina Display", sku: "NP04023381", barcode: "0793573199210", price: 28500 },
-    { id: "var_chg_67w", title: "Apple 67W USB-C Power Adapter", sku: "ACC-CHG-67W", barcode: "194252432822", price: 4500 },
-    { id: "var_diag", title: "Workshop Diagnostic Service", sku: "SRV-DIAG-01", barcode: "SRV-DIAG-01", price: 2000 },
+  // Catalog state
+  const [catalog, setCatalog] = useState<ProductPart[]>([
+    {
+      id: "var_kb_a2681",
+      title: 'MacBook Air M2 13" (A2681) Keyboard',
+      sku: "NP04011448",
+      barcode: "NP04011448",
+      price: 6500,
+    },
+    {
+      id: "var_bat_a2442",
+      title: 'MacBook Pro 14" (A2442) Battery OEM',
+      sku: "NP04019921",
+      barcode: "NP04019921",
+      price: 12000,
+    },
+    {
+      id: "var_screen_a2338",
+      title: "MacBook Pro M1 (A2338) Retina Display",
+      sku: "NP04023381",
+      barcode: "0793573199210",
+      price: 28500,
+    },
+    {
+      id: "var_chg_67w",
+      title: "Apple 67W USB-C Power Adapter",
+      sku: "ACC-CHG-67W",
+      barcode: "194252432822",
+      price: 4500,
+    },
+    {
+      id: "var_diag",
+      title: "Workshop Diagnostic Service",
+      sku: "SRV-DIAG-01",
+      barcode: "SRV-DIAG-01",
+      price: 2000,
+    },
   ]);
 
+  // Cart & checkout state
   const [cart, setCart] = useState<CartItem[]>([]);
   const [scanInput, setScanInput] = useState("");
   const [tenderInput, setTenderInput] = useState("");
-  const [statusNotice, setStatusNotice] = useState("Ready for barcode scan or SKU lookup.");
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState("");
+  const [statusNotice, setStatusNotice] = useState(
+    "Ready for barcode scan or SKU lookup.",
+  );
   const [lastOrderNum, setLastOrderNum] = useState<string | null>(null);
 
   // Customer state & Quick Customer pipeline
-  const [selectedCustomer, setSelectedCustomer] = useState<POSCustomer | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<POSCustomer | null>(
+    null,
+  );
   const [customerSearchInput, setCustomerSearchInput] = useState("");
   const [customerResults, setCustomerResults] = useState<POSCustomer[]>([]);
   const [cachedCustomers, setCachedCustomers] = useState<POSCustomer[]>([
-    { id: "cus_01JOHN_DOE", first_name: "John", last_name: "Doe", email: "john.doe@example.com", phone: "+254712345678", company_name: "Nairobi Tech Ltd", has_account: true },
-    { id: "cus_02JANE_SMITH", first_name: "Jane", last_name: "Smith", email: "jane.smith@urbandevicecare.co.uk", phone: "+254722998877", company_name: "Urban Studios", has_account: true },
+    {
+      id: "cus_01JOHN_DOE",
+      first_name: "John",
+      last_name: "Doe",
+      email: "john.doe@example.com",
+      phone: "+254712345678",
+      company_name: "Nairobi Tech Ltd",
+      has_account: true,
+    },
+    {
+      id: "cus_02JANE_SMITH",
+      first_name: "Jane",
+      last_name: "Smith",
+      email: "jane.smith@urbandevicecare.co.uk",
+      phone: "+254722998877",
+      company_name: "Urban Studios",
+      has_account: true,
+    },
   ]);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
-  const [customerFormError, setCustomerFormError] = useState<string | null>(null);
+  const [customerFormError, setCustomerFormError] = useState<string | null>(
+    null,
+  );
   const [customerForm, setCustomerForm] = useState({
     firstName: "",
     lastName: "",
@@ -94,16 +230,118 @@ export default function PosTerminal() {
     companyName: "",
   });
 
+  // Custom Item Modal State
+  const [showCustomItemModal, setShowCustomItemModal] = useState(false);
+  const [customTitle, setCustomTitle] = useState("");
+  const [customPrice, setCustomPrice] = useState("");
+  const [customQuantity, setCustomQuantity] = useState("1");
+  const [customSku, setCustomSku] = useState("");
+
+  // Workshop & Repairs Module State
+  const [repairs, setRepairs] = useState<RepairTicketRecord[]>([]);
+  const [repairsLoading, setRepairsLoading] = useState(false);
+  const [repairStatusFilter, setRepairStatusFilter] = useState("all");
+  const [repairSearchQuery, setRepairSearchQuery] = useState("");
+  const [selectedTicket, setSelectedTicket] = useState<
+    RepairTicketRecord | null
+  >(null);
+  const [showIntakeModal, setShowIntakeModal] = useState(false);
+  const [isIntaking, setIsIntaking] = useState(false);
+  const [intakeError, setIntakeError] = useState<string | null>(null);
+  const [updatingTicketStatus, setUpdatingTicketStatus] = useState(false);
+  const [ticketStatusSelect, setTicketStatusSelect] = useState<string>("received");
+  const [ticketNoteInput, setTicketNoteInput] = useState("");
+  const [isAddingTicketNote, setIsAddingTicketNote] = useState(false);
+  const [intakeForm, setIntakeForm] = useState({
+    brand: "Apple",
+    modelName: "",
+    deviceType: "laptop",
+    serialNumber: "",
+    imei: "",
+    condition: "",
+    passcode: "",
+    issueDescription: "",
+    accessories: "",
+    technicianName: "",
+    partsEstimate: "0",
+    laborEstimate: "2000",
+    totalEstimate: "2000",
+    depositAmount: "0",
+    termsAccepted: true,
+    dataWipedConsent: true,
+  });
+
   // Hardware wedge scanner buffer
   const wedgeBuffer = useRef<string>("");
   const lastKeyTime = useRef<number>(0);
 
+  // Restore session from sessionStorage on initial client mount
   useEffect(() => {
+    if (typeof globalThis !== "undefined" && globalThis.sessionStorage) {
+      try {
+        const stored = globalThis.sessionStorage.getItem("pos_admin_session");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.admin && parsed.token) {
+            setActiveAdmin(parsed.admin);
+            setAdminToken(parsed.token);
+            setStatusNotice(
+              `Welcome back, ${parsed.admin.first_name}. Session active.`,
+            );
+          }
+        }
+      } catch (_e) {
+        // Clear invalid session
+        globalThis.sessionStorage.removeItem("pos_admin_session");
+      }
+    }
+  }, []);
+
+  // Fetch repairs when switching to workshop tab or when admin logs in
+  useEffect(() => {
+    if (activeAdmin && activeTab === "workshop") {
+      loadRepairs();
+    }
+  }, [activeAdmin, activeTab, repairStatusFilter]);
+
+  const loadRepairs = async () => {
+    setRepairsLoading(true);
+    try {
+      const headers: Record<string, string> = {};
+      if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
+      const url = `/api/pos/repairs?status=${
+        encodeURIComponent(repairStatusFilter)
+      }&q=${encodeURIComponent(repairSearchQuery)}`;
+      let res = await fetch(url, { headers });
+      if (!res.ok) {
+        res = await fetch(
+          `/api/repairs?status=${encodeURIComponent(repairStatusFilter)}&q=${
+            encodeURIComponent(repairSearchQuery)
+          }`,
+        );
+      }
+      if (res.ok) {
+        const data = await res.json();
+        setRepairs(data.repairs || []);
+      }
+    } catch {
+      // Offline fallback
+    } finally {
+      setRepairsLoading(false);
+    }
+  };
+
+  // Hardware barcode scanner wedge listener
+  useEffect(() => {
+    if (!activeAdmin) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept if typing inside an explicit input
       const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (targetTag === "input" || targetTag === "textarea") {
-        if (e.key === "Enter" && targetTag === "input" && (e.target as HTMLElement).id === "manual-scan-input") {
+        if (
+          e.key === "Enter" && targetTag === "input" &&
+          (e.target as HTMLElement).id === "manual-scan-input"
+        ) {
           e.preventDefault();
           handleScanCode(scanInput);
           setScanInput("");
@@ -129,9 +367,77 @@ export default function PosTerminal() {
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [scanInput, cart]);
+    globalThis.addEventListener("keydown", handleKeyDown);
+    return () => globalThis.removeEventListener("keydown", handleKeyDown);
+  }, [activeAdmin, scanInput, cart]);
+
+  // Login handler
+  const handleLoginSubmit = async (e?: Event) => {
+    if (e) e.preventDefault();
+    setLoginError(null);
+
+    const email = loginEmail.trim();
+    const password = loginPassword.trim();
+    if (!email || !password) {
+      setLoginError("Please enter your Medusa admin email and password.");
+      return;
+    }
+
+    setIsLoggingIn(true);
+    try {
+      let res = await fetch("/api/pos/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        res = await fetch("/api/auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+      }
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Invalid Medusa Admin credentials");
+      }
+
+      const session = await res.json();
+      if (session && session.admin) {
+        setActiveAdmin(session.admin);
+        setAdminToken(session.token);
+        if (typeof globalThis !== "undefined" && globalThis.sessionStorage) {
+          globalThis.sessionStorage.setItem(
+            "pos_admin_session",
+            JSON.stringify(session),
+          );
+        }
+        setStatusNotice(
+          `Logged in as ${session.admin.first_name} (${
+            session.admin.role || "Admin"
+          }).`,
+        );
+      }
+    } catch (err: any) {
+      setLoginError(err.message || "Failed to log in to Medusa Admin");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setActiveAdmin(null);
+    setAdminToken(null);
+    if (typeof globalThis !== "undefined" && globalThis.sessionStorage) {
+      globalThis.sessionStorage.removeItem("pos_admin_session");
+    }
+    clearCart();
+    setSelectedCustomer(null);
+    setStatusNotice(
+      "Logged out. Please sign in to resume POS register operations.",
+    );
+  };
 
   const handleScanCode = async (rawCode: string) => {
     const code = rawCode.trim();
@@ -153,7 +459,7 @@ export default function PosTerminal() {
       return;
     }
 
-    // 2. Query /api/pos/scan endpoint (fallback to /api/scan)
+    // 2. Query /api/pos/scan endpoint
     try {
       let res = await fetch(`/api/pos/scan?code=${encodeURIComponent(code)}`);
       if (!res.ok) {
@@ -166,11 +472,19 @@ export default function PosTerminal() {
           addToCart(data.part);
           setStatusNotice(`✔ Added ${data.part.title}`);
         } else if (data.type === "ticket" && data.ticket) {
-          setStatusNotice(`✔ Linked Repair Ticket #${data.ticket.ticket_number}`);
+          setStatusNotice(
+            `✔ Found Repair Ticket #${data.ticket.ticket_number}`,
+          );
+          setActiveTab("workshop");
+          setRepairSearchQuery(data.ticket.ticket_number);
         } else if (data.type === "device" && data.device_history?.[0]) {
-          setStatusNotice(`✔ Found Apple Serial #${data.device_history[0].serial_number} (${data.device_history[0].device_name})`);
+          setStatusNotice(
+            `✔ Found Serial #${data.device_history[0].serial_number} (${
+              data.device_history[0].device_name
+            })`,
+          );
         } else {
-          setStatusNotice(`✖ Unrecognized barcode: ${code}`);
+          setStatusNotice(`✖ Unrecognized code: ${code}`);
         }
       }
     } catch {
@@ -178,16 +492,54 @@ export default function PosTerminal() {
     }
   };
 
-  const addToCart = (part: ProductPart) => {
+  const addToCart = (part: ProductPart, qty: number = 1) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.part.id === part.id);
       if (existing) {
         return prev.map((item) =>
-          item.part.id === part.id ? { ...item, quantity: item.quantity + 1 } : item,
+          item.part.id === part.id
+            ? { ...item, quantity: item.quantity + qty }
+            : item
         );
       }
-      return [...prev, { id: part.id, part, quantity: 1 }];
+      return [...prev, { id: part.id, part, quantity: qty }];
     });
+  };
+
+  const addCustomItemToCart = (e?: Event) => {
+    if (e) e.preventDefault();
+    const title = customTitle.trim();
+    const priceNum = parseFloat(customPrice);
+    const qtyNum = parseInt(customQuantity, 10) || 1;
+
+    if (!title) {
+      alert("Please provide an item description or title.");
+      return;
+    }
+    if (isNaN(priceNum) || priceNum < 0) {
+      alert("Please provide a valid price.");
+      return;
+    }
+
+    const customPart: ProductPart = {
+      id: `custom_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      title,
+      price: priceNum,
+      sku: customSku.trim() || "CUSTOM",
+      barcode: undefined,
+      isCustom: true,
+    };
+
+    addToCart(customPart, qtyNum);
+    setStatusNotice(
+      `✔ Added custom item: "${title}" (KES ${priceNum.toFixed(2)})`,
+    );
+
+    setCustomTitle("");
+    setCustomPrice("");
+    setCustomQuantity("1");
+    setCustomSku("");
+    setShowCustomItemModal(false);
   };
 
   const updateQuantity = (partId: string, delta: number) => {
@@ -199,7 +551,7 @@ export default function PosTerminal() {
           }
           return item;
         })
-        .filter((item) => item.quantity > 0),
+        .filter((item) => item.quantity > 0)
     );
   };
 
@@ -209,56 +561,19 @@ export default function PosTerminal() {
     setStatusNotice("Cart cleared.");
   };
 
-  const subtotal = cart.reduce((acc, item) => acc + item.part.price * item.quantity, 0);
+  const subtotal = cart.reduce(
+    (acc, item) => acc + item.part.price * item.quantity,
+    0,
+  );
   const tax = Math.round(subtotal * 0.16 * 100) / 100;
   const grandTotal = subtotal + tax;
 
   const tenderedAmount = parseFloat(tenderInput) || 0;
-  const changeDue = tenderedAmount >= grandTotal ? tenderedAmount - grandTotal : 0;
+  const changeDue = tenderedAmount >= grandTotal
+    ? tenderedAmount - grandTotal
+    : 0;
 
-  const handlePinSubmit = async () => {
-    try {
-      let res = await fetch("/api/pos/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: pinInput }),
-      });
-      if (!res.ok) {
-        res = await fetch("/api/auth", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pin: pinInput }),
-        });
-      }
-
-      if (res.ok) {
-        const session = await res.json();
-        if (session.admin) {
-          setCashier({
-            id: session.admin.id,
-            name: `${session.admin.first_name} ${session.admin.last_name || ""}`.trim(),
-            email: session.admin.email,
-          });
-          setStatusNotice(`✔ Switched cashier to ${session.admin.first_name}.`);
-        }
-      } else {
-        setStatusNotice("✖ Invalid PIN code");
-      }
-    } catch {
-      if (pinInput === "1234") {
-        setCashier({ id: "usr_01KRV9NELLY", name: "Nelly K.", email: "nelly@urbandevicecare.co.uk" });
-        setStatusNotice("✔ Switched cashier to Nelly K.");
-      } else if (pinInput === "5555") {
-        setCashier({ id: "usr_02TECH_DAN", name: "Dan M.", email: "dan@urbandevicecare.co.uk" });
-        setStatusNotice("✔ Switched cashier to Dan M.");
-      } else {
-        setStatusNotice("✖ Invalid PIN code");
-      }
-    }
-    setPinInput("");
-    setShowPinModal(false);
-  };
-
+  // Registered Customer Search with Bearer Token
   const handleCustomerSearch = async (query: string) => {
     setCustomerSearchInput(query);
     setShowCustomerDropdown(true);
@@ -270,9 +585,19 @@ export default function PosTerminal() {
 
     let serverCustomers: POSCustomer[] = [];
     try {
-      let res = await fetch(`/api/pos/customers?q=${encodeURIComponent(query)}`);
+      const headers: Record<string, string> = {};
+      if (adminToken) {
+        headers["Authorization"] = `Bearer ${adminToken}`;
+      }
+
+      let res = await fetch(
+        `/api/pos/customers?q=${encodeURIComponent(query)}`,
+        { headers },
+      );
       if (!res.ok) {
-        res = await fetch(`/api/customers?q=${encodeURIComponent(query)}`);
+        res = await fetch(`/api/customers?q=${encodeURIComponent(query)}`, {
+          headers,
+        });
       }
       if (res.ok) {
         const data = await res.json();
@@ -289,10 +614,11 @@ export default function PosTerminal() {
       (c.company_name || "").toLowerCase().includes(q)
     );
 
-    // Merge server customers and cached customers with deduplication
     const merged: POSCustomer[] = [...serverCustomers];
     const seenIds = new Set(serverCustomers.map((c) => c.id));
-    const seenEmails = new Set(serverCustomers.map((c) => c.email.toLowerCase()));
+    const seenEmails = new Set(
+      serverCustomers.map((c) => c.email.toLowerCase()),
+    );
     for (const c of localMatches) {
       if (!seenIds.has(c.id) && !seenEmails.has(c.email.toLowerCase())) {
         merged.push(c);
@@ -308,7 +634,11 @@ export default function PosTerminal() {
     setSelectedCustomer(customer);
     setShowCustomerDropdown(false);
     setCustomerSearchInput("");
-    setStatusNotice(`✔ Selected client: ${customer.first_name} ${customer.last_name || ""} (${customer.phone || customer.email})`);
+    setStatusNotice(
+      `✔ Selected client: ${customer.first_name} ${customer.last_name || ""} (${
+        customer.phone || customer.email
+      })`,
+    );
   };
 
   const openQuickCustomerModal = (presetQuery: string = "") => {
@@ -373,16 +703,21 @@ export default function PosTerminal() {
         company_name: companyName || undefined,
       };
 
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
+
       let res = await fetch("/api/pos/customers", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
         res = await fetch("/api/customers", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(payload),
         });
       }
@@ -393,28 +728,35 @@ export default function PosTerminal() {
       }
 
       const data = await res.json();
-      const cleanPhone = phone.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || Date.now().toString();
+      const cleanPhone = phone.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() ||
+        Date.now().toString();
       const newCustomer: POSCustomer = data.customer || {
         id: `cus_${Date.now()}`,
         ...payload,
         has_account: true,
-        email: payload.email || `walkin_${cleanPhone}@pos.urbandevicecare.co.uk`,
+        email: payload.email ||
+          `walkin_${cleanPhone}@pos.urbandevicecare.co.uk`,
       };
 
-      // Add to cached customers so offline & dynamic search resolves them
       setCachedCustomers((prev) => [
         newCustomer,
-        ...prev.filter((c) => c.id !== newCustomer.id && c.email.toLowerCase() !== newCustomer.email.toLowerCase()),
+        ...prev.filter((c) =>
+          c.id !== newCustomer.id &&
+          c.email.toLowerCase() !== newCustomer.email.toLowerCase()
+        ),
       ]);
 
-      // Autoselect into active order/ticket session with ZERO extra clicks
       setSelectedCustomer(newCustomer);
       setShowCustomerModal(false);
       setCustomerSearchInput("");
-      setStatusNotice(`✔ Registered and autoselected customer: ${newCustomer.first_name} ${newCustomer.last_name || ""}`);
+      setStatusNotice(
+        `✔ Registered and autoselected client: ${newCustomer.first_name} ${
+          newCustomer.last_name || ""
+        }`,
+      );
     } catch (_err) {
-      // Local fallback for offline mode
-      const cleanPhone = phone.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || Date.now().toString();
+      const cleanPhone = phone.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() ||
+        Date.now().toString();
       const fallbackCustomer: POSCustomer = {
         id: `cus_${Date.now()}`,
         first_name: firstName,
@@ -427,31 +769,55 @@ export default function PosTerminal() {
 
       setCachedCustomers((prev) => [
         fallbackCustomer,
-        ...prev.filter((c) => c.id !== fallbackCustomer.id && c.email.toLowerCase() !== fallbackCustomer.email.toLowerCase()),
+        ...prev.filter((c) =>
+          c.id !== fallbackCustomer.id &&
+          c.email.toLowerCase() !== fallbackCustomer.email.toLowerCase()
+        ),
       ]);
 
       setSelectedCustomer(fallbackCustomer);
       setShowCustomerModal(false);
       setCustomerSearchInput("");
-      setStatusNotice(`✔ Registered and autoselected customer: ${fallbackCustomer.first_name} ${fallbackCustomer.last_name || ""}`);
+      setStatusNotice(
+        `✔ Registered and autoselected client: ${fallbackCustomer.first_name} ${
+          fallbackCustomer.last_name || ""
+        }`,
+      );
     } finally {
       setIsCreatingCustomer(false);
     }
   };
 
+  // Complete Order: Defaults to active admin user if no customer is selected
   const completeCheckout = async () => {
     if (cart.length === 0) {
       setStatusNotice("Cart is empty.");
       return;
     }
+    if (!activeAdmin) return;
+
+    // Requirement: if no customer is selected, default to the logged in user as customer
+    const effectiveCustomer: POSCustomer = selectedCustomer || {
+      id: activeAdmin.id,
+      first_name: activeAdmin.first_name,
+      last_name: activeAdmin.last_name || "",
+      email: activeAdmin.email,
+      phone: "",
+      company_name: "Urban Device Care Staff",
+      has_account: true,
+    };
 
     const orderNum = `POS-${Math.floor(100000 + Math.random() * 900000)}`;
     setLastOrderNum(orderNum);
 
     const payload = {
       order_number: orderNum,
-      cashier,
-      customer: selectedCustomer,
+      cashier: {
+        id: activeAdmin.id,
+        name: `${activeAdmin.first_name} ${activeAdmin.last_name || ""}`.trim(),
+        email: activeAdmin.email,
+      },
+      customer: effectiveCustomer,
       terminal_channel: channel,
       items: cart.map((c) => ({
         variant_id: c.part.id,
@@ -460,6 +826,7 @@ export default function PosTerminal() {
         quantity: c.quantity,
         unit_price: c.part.price,
         total: c.part.price * c.quantity,
+        is_custom: c.part.isCustom || false,
       })),
       subtotal,
       tax,
@@ -472,15 +839,20 @@ export default function PosTerminal() {
     };
 
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
+
       let res = await fetch("/api/pos/checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
         res = await fetch("/api/checkout", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(payload),
         });
       }
@@ -488,473 +860,1805 @@ export default function PosTerminal() {
       // offline fallback handled by local state
     }
 
-    const completedCustomerNotice = selectedCustomer
-      ? ` for ${selectedCustomer.first_name} ${selectedCustomer.last_name || ""}`
-      : "";
+    const custName = `${effectiveCustomer.first_name} ${
+      effectiveCustomer.last_name || ""
+    }`.trim();
     clearCart();
     setSelectedCustomer(null);
-    setStatusNotice(`✔ Order ${orderNum} completed! Tagged to ${cashier.name}${completedCustomerNotice}.`);
+    setStatusNotice(
+      `✔ Order ${orderNum} completed! Tagged to ${activeAdmin.first_name} (Client: ${custName}).`,
+    );
   };
 
   const printReceipt = () => {
     const order = lastOrderNum || "POS-SAMPLE";
-    window.open(`/api/pos/receipt?order_number=${order}&format=html`, "_blank");
+    globalThis.open(
+      `/api/pos/receipt?order_number=${order}&format=html`,
+      "_blank",
+    );
     setStatusNotice(`Receipt opened for order #${order}`);
   };
 
+  // Workshop Intake Ticket Submission
+  const handleIntakeSubmit = async (e?: Event) => {
+    if (e) e.preventDefault();
+    setIntakeError(null);
+
+    if (!activeAdmin) return;
+    if (!intakeForm.modelName.trim()) {
+      setIntakeError("Device model name is required.");
+      return;
+    }
+    if (!intakeForm.issueDescription.trim()) {
+      setIntakeError("Fault description is required.");
+      return;
+    }
+
+    // Default customer to selectedCustomer or activeAdmin
+    const effectiveCustomer: POSCustomer = selectedCustomer || {
+      id: activeAdmin.id,
+      first_name: activeAdmin.first_name,
+      last_name: activeAdmin.last_name || "",
+      email: activeAdmin.email,
+      phone: "",
+      company_name: "Urban Device Care Staff",
+      has_account: true,
+    };
+
+    setIsIntaking(true);
+    try {
+      const totalEst = parseFloat(intakeForm.totalEstimate) || 0;
+      const deposit = parseFloat(intakeForm.depositAmount) || 0;
+
+      const payload = {
+        customer_id: effectiveCustomer.id,
+        customer_name: `${effectiveCustomer.first_name} ${
+          effectiveCustomer.last_name || ""
+        }`.trim(),
+        customer_phone: effectiveCustomer.phone,
+        customer_email: effectiveCustomer.email,
+        brand: intakeForm.brand,
+        model_name: intakeForm.modelName.trim(),
+        device_type: intakeForm.deviceType,
+        serial_number: intakeForm.serialNumber.trim() || undefined,
+        imei: intakeForm.imei.trim() || undefined,
+        condition: intakeForm.condition.trim() || undefined,
+        passcode: intakeForm.passcode.trim() || undefined,
+        issue_description: intakeForm.issueDescription.trim(),
+        accessories: intakeForm.accessories.trim() || undefined,
+        technician_name: intakeForm.technicianName.trim() || undefined,
+        parts_estimate: parseFloat(intakeForm.partsEstimate) || 0,
+        labor_estimate: parseFloat(intakeForm.laborEstimate) || 0,
+        total_estimate: totalEst,
+        deposit_amount: deposit,
+        terms_accepted: intakeForm.termsAccepted,
+        data_wiped_consent: intakeForm.dataWipedConsent,
+      };
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
+
+      let res = await fetch("/api/pos/repairs", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        res = await fetch("/api/repairs", {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+      }
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to book repair ticket");
+      }
+
+      const data = await res.json();
+      const createdTicket: RepairTicketRecord = data.repair;
+
+      setRepairs((prev) => [createdTicket, ...prev]);
+      setShowIntakeModal(false);
+      setStatusNotice(
+        `✔ Booked Repair Ticket #${createdTicket.ticket_number} for ${createdTicket.device_name}`,
+      );
+
+      // Reset intake form
+      setIntakeForm({
+        brand: "Apple",
+        modelName: "",
+        deviceType: "laptop",
+        serialNumber: "",
+        imei: "",
+        condition: "",
+        passcode: "",
+        issueDescription: "",
+        accessories: "",
+        technicianName: "",
+        partsEstimate: "0",
+        laborEstimate: "2000",
+        totalEstimate: "2000",
+        depositAmount: "0",
+        termsAccepted: true,
+        dataWipedConsent: true,
+      });
+
+      // View details of newly created ticket
+      setSelectedTicket(createdTicket);
+    } catch (err: any) {
+      setIntakeError(err.message || "Failed to book repair ticket");
+    } finally {
+      setIsIntaking(false);
+    }
+  };
+
+  // Tender Repair Balance: Transports repair ticket balance directly into the Counter Cart!
+  const tenderRepairBalance = (ticket: RepairTicketRecord) => {
+    const balDue = ticket.balance_due ??
+      Math.max(0, (ticket.total_estimate || 0) - (ticket.deposit_amount || 0));
+
+    const repairItem: ProductPart = {
+      id: `rep_${ticket.ticket_number}`,
+      title: `Repair Balance: #${ticket.ticket_number} - ${
+        ticket.device_name || ticket.device?.model_name || "Device"
+      }`,
+      price: balDue,
+      sku: ticket.ticket_number,
+      isCustom: true,
+    };
+
+    // Attach customer if ticket has customer info
+    if (ticket.customer_id) {
+      setSelectedCustomer({
+        id: ticket.customer_id,
+        first_name: ticket.customer_name?.split(" ")[0] || "Client",
+        last_name: ticket.customer_name?.split(" ").slice(1).join(" ") || "",
+        email: ticket.customer_email ||
+          `client_${ticket.ticket_number.toLowerCase()}@pos.urbandevicecare.co.uk`,
+        phone: ticket.customer_phone || "",
+        has_account: true,
+      });
+    }
+
+    addToCart(repairItem, 1);
+    setSelectedTicket(null);
+    setActiveTab("counter");
+    setStatusNotice(
+      `✔ Loaded #${ticket.ticket_number} balance (KES ${
+        balDue.toFixed(2)
+      }) into cart. Ready for tender.`,
+    );
+  };
+
+  const handleUpdateTicketStatus = async (newStatus: string) => {
+    if (!selectedTicket) return;
+    setUpdatingTicketStatus(true);
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
+      await fetch("/api/pos/repairs", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          action: "update_status",
+          ticket_id: selectedTicket.id,
+          status: newStatus,
+        }),
+      });
+
+      setSelectedTicket((prev) => prev ? { ...prev, status: newStatus } : null);
+      setRepairs((prev) =>
+        prev.map((r) => r.id === selectedTicket.id ? { ...r, status: newStatus } : r)
+      );
+      setStatusNotice(
+        `✔ Status for #${selectedTicket.ticket_number} updated to ${newStatus}.`,
+      );
+    } catch {
+      setSelectedTicket((prev) => prev ? { ...prev, status: newStatus } : null);
+      setRepairs((prev) =>
+        prev.map((r) => r.id === selectedTicket.id ? { ...r, status: newStatus } : r)
+      );
+    } finally {
+      setUpdatingTicketStatus(false);
+    }
+  };
+
+  const handleAddTicketNote = async () => {
+    if (!selectedTicket || !ticketNoteInput.trim()) return;
+    setIsAddingTicketNote(true);
+    try {
+      const noteContent = ticketNoteInput.trim();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (adminToken) headers["Authorization"] = `Bearer ${adminToken}`;
+      await fetch("/api/pos/repairs", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          action: "add_note",
+          ticket_id: selectedTicket.id,
+          content: noteContent,
+          is_internal: true,
+        }),
+      });
+
+      const newNote = {
+        id: `note_${Date.now()}`,
+        content: noteContent,
+        is_internal: true,
+        created_at: new Date().toISOString(),
+      };
+      setSelectedTicket((prev) =>
+        prev ? { ...prev, notes: [...(prev.notes || []), newNote] } : null
+      );
+      setRepairs((prev) =>
+        prev.map((r) =>
+          r.id === selectedTicket.id
+            ? { ...r, notes: [...(r.notes || []), newNote] }
+            : r
+        )
+      );
+      setTicketNoteInput("");
+      setStatusNotice(`✔ Note added to #${selectedTicket.ticket_number}.`);
+    } catch {
+      // fallback
+    } finally {
+      setIsAddingTicketNote(false);
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "ready":
+      case "completed":
+      case "collected":
+        return "bg-emerald-500/15 text-emerald-400 border-emerald-500/30";
+      case "diagnosing":
+      case "repairing":
+        return "bg-blue-500/15 text-blue-400 border-blue-500/30";
+      case "awaiting_approval":
+      case "refunded":
+        return "bg-amber-500/15 text-amber-300 border-amber-500/30";
+      case "cancelled":
+        return "bg-red-500/15 text-red-400 border-red-500/30";
+      case "pending_dropoff":
+      case "received":
+      default:
+        return "bg-zinc-800 text-zinc-300 border-zinc-700";
+    }
+  };
+
+  const getPaymentBadge = (ticket: RepairTicketRecord) => {
+    const total = (ticket.total_actual && ticket.total_actual > 0)
+      ? ticket.total_actual
+      : (ticket.total_estimate || 0);
+    const paid = ticket.amount_paid || ticket.deposit_amount || 0;
+    if (ticket.payment_status === "refunded") {
+      return { label: "Refunded", badgeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" };
+    }
+    if ((paid >= total && (total > 0 || paid > 0)) || ticket.payment_status === "captured") {
+      return { label: "Paid", badgeClass: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" };
+    }
+    if (paid > 0 && paid < total) {
+      return { label: "Partially Paid", badgeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" };
+    }
+    return { label: "Unpaid", badgeClass: "bg-red-500/15 text-red-400 border-red-500/30" };
+  };
+
+  // Filtered repairs
+  const filteredRepairs = repairs.filter((r) => {
+    const matchesStatus = repairStatusFilter === "all" ||
+      r.status.toLowerCase() === repairStatusFilter.toLowerCase();
+    if (!matchesStatus) return false;
+    if (!repairSearchQuery.trim()) return true;
+    const q = repairSearchQuery.toLowerCase();
+    return (
+      r.ticket_number.toLowerCase().includes(q) ||
+      (r.customer_name || "").toLowerCase().includes(q) ||
+      (r.device_name || "").toLowerCase().includes(q) ||
+      (r.serial_number || "").toLowerCase().includes(q) ||
+      (r.technician_name || "").toLowerCase().includes(q) ||
+      r.issue_description.toLowerCase().includes(q)
+    );
+  });
+
+  // ==========================================
+  // VIEW: 1. MEDUSA ADMIN LOGIN SCREEN
+  // ==========================================
+  if (!activeAdmin) {
+    return (
+      <div class="min-h-screen bg-[#121214] text-white font-sans flex flex-col justify-center items-center p-4 select-none">
+        <div class="bg-[#1C1C1E] border border-[#2C2C2E] rounded-2xl p-8 max-w-md w-full shadow-2xl">
+          <div class="text-center mb-6">
+            <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 mx-auto flex items-center justify-center font-bold text-xl text-white shadow-lg mb-3">
+              UD
+            </div>
+            <h1 class="text-lg font-bold tracking-tight text-white">
+              Urban Device Care • Web POS
+            </h1>
+            <p class="text-xs text-zinc-400 mt-1">
+              Sign in with your Medusa Admin credentials to open till &amp;
+              register session
+            </p>
+          </div>
+
+          {loginError && (
+            <div class="mb-4 p-3 rounded-lg bg-red-500/15 border border-red-500/30 text-xs text-red-400 flex items-center space-x-2">
+              <span class="font-bold">Error:</span>
+              <span>{loginError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleLoginSubmit} class="space-x-0 space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-zinc-300 mb-1.5">
+                Staff Admin Email
+              </label>
+              <div class="relative">
+                <Mail class="absolute left-3 top-3 w-4 h-4 text-zinc-500" />
+                <input
+                  type="email"
+                  required
+                  value={loginEmail}
+                  onInput={(e) =>
+                    setLoginEmail((e.target as HTMLInputElement).value)}
+                  placeholder="e.g. nelly@urbandevicecare.co.uk"
+                  class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-zinc-300 mb-1.5">
+                Admin Password
+              </label>
+              <div class="relative">
+                <Key class="absolute left-3 top-3 w-4 h-4 text-zinc-500" />
+                <input
+                  type="password"
+                  required
+                  value={loginPassword}
+                  onInput={(e) =>
+                    setLoginPassword((e.target as HTMLInputElement).value)}
+                  placeholder="••••••••"
+                  class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoggingIn}
+              class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition active:scale-98 shadow flex items-center justify-center space-x-2 mt-2"
+            >
+              {isLoggingIn ? <span>Authenticating with Medusa...</span> : (
+                <>
+                  <CheckCircle2 class="w-4 h-4" />
+                  <span>Log In to POS Register</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Quick Staff Presets */}
+          <div class="mt-6 pt-4 border-t border-[#2C2C2E]">
+            <p class="text-[10px] uppercase font-bold text-zinc-500 mb-2 tracking-wider text-center">
+              Quick Staff Presets (All Admin Accounts)
+            </p>
+            <div class="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginEmail("nelly@urbandevicecare.co.uk");
+                  setLoginPassword("password");
+                }}
+                class="py-1.5 px-2 bg-[#2C2C2E] hover:bg-zinc-700 border border-[#3A3A3C] rounded text-[11px] text-zinc-300 transition text-center truncate"
+                title="Store Manager"
+              >
+                Nelly (Manager)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginEmail("dan@urbandevicecare.co.uk");
+                  setLoginPassword("password");
+                }}
+                class="py-1.5 px-2 bg-[#2C2C2E] hover:bg-zinc-700 border border-[#3A3A3C] rounded text-[11px] text-zinc-300 transition text-center truncate"
+                title="Repair Technician"
+              >
+                Dan (Tech)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoginEmail("alex@urbandevicecare.co.uk");
+                  setLoginPassword("password");
+                }}
+                class="py-1.5 px-2 bg-[#2C2C2E] hover:bg-zinc-700 border border-[#3A3A3C] rounded text-[11px] text-zinc-300 transition text-center truncate"
+                title="Cashier"
+              >
+                Alex (Cashier)
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // VIEW: 2. AUTHENTICATED POS TERMINAL
+  // ==========================================
   return (
     <div class="min-h-screen bg-[#121214] text-white p-4 font-sans flex flex-col select-none w-full">
       {/* Top Header */}
-      <header class="flex flex-wrap items-center justify-between bg-[#1C1C1E] border border-[#2C2C2E] rounded-xl p-3 mb-4 shadow">
+      <header class="flex flex-wrap items-center justify-between bg-[#1C1C1E] border border-[#2C2C2E] rounded-xl p-3 mb-3 shadow">
         <div class="flex items-center space-x-3">
           <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center font-bold text-white shadow-sm">
             UD
           </div>
           <div>
             <div class="flex items-center space-x-2">
-              <h1 class="text-sm font-bold tracking-tight">Urban Device Care • Web POS</h1>
+              <h1 class="text-sm font-bold tracking-tight text-white">
+                Urban Device Care • POS
+              </h1>
               <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                 Online
               </span>
             </div>
-            <p class="text-xs text-zinc-400 font-mono">
+            <p class="text-[10px] text-zinc-400 font-mono">
               Fresh.js • {channel}
             </p>
           </div>
         </div>
 
-        <div class="flex items-center space-x-2 mt-2 sm:mt-0">
+        {/* Minimalist Segmented Navigation: POS Register vs Repairs */}
+        <nav class="flex items-center p-1 bg-[#18181B] border border-zinc-800 rounded-xl shadow-inner gap-1 my-2 sm:my-0">
+          <button
+            type="button"
+            onClick={() => setActiveTab("counter")}
+            class={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium tracking-wide transition-all duration-150 ${
+              activeTab === "counter"
+                ? "bg-zinc-800 text-white shadow-sm border border-zinc-700/60"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40"
+            }`}
+          >
+            <ShoppingCart class="w-3.5 h-3.5" />
+            <span>POS Register</span>
+            {cart.length > 0 && (
+              <span class="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                {cart.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("workshop")}
+            class={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium tracking-wide transition-all duration-150 ${
+              activeTab === "workshop"
+                ? "bg-zinc-800 text-white shadow-sm border border-zinc-700/60"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40"
+            }`}
+          >
+            <Wrench class="w-3.5 h-3.5" />
+            <span>Repairs</span>
+            {repairs.length > 0 && (
+              <span class="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                {repairs.length}
+              </span>
+            )}
+          </button>
+        </nav>
+
+        {/* Active Staff Account & Sign Out */}
+        <div class="flex items-center space-x-2">
           <a
             href="/"
             f-client-nav={false}
-            class="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[#2C2C2E] hover:bg-zinc-700 text-zinc-300 border border-[#3A3A3C] transition active:scale-95"
+            class="hidden md:inline-flex items-center space-x-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-[#2C2C2E] hover:bg-zinc-700 text-zinc-300 border border-[#3A3A3C] transition active:scale-95"
             title="Return to Online Store"
           >
             <ArrowLeft class="w-3.5 h-3.5" />
             <span>Storefront</span>
           </a>
 
-          <div class="hidden sm:block text-right px-2">
+          <div class="text-right px-2">
             <p class="text-xs font-semibold text-zinc-200 flex items-center justify-end space-x-1">
-              <User class="w-3 h-3 text-zinc-400 inline" />
-              <span>{cashier.name}</span>
+              <User class="w-3 h-3 text-emerald-400 inline" />
+              <span>
+                {activeAdmin.first_name} {activeAdmin.last_name || ""}
+              </span>
             </p>
-            <p class="text-[10px] text-zinc-400">{cashier.email}</p>
+            <p class="text-[10px] text-zinc-400">
+              {activeAdmin.role || "Admin"}
+            </p>
           </div>
 
           <button
-            onClick={() => setShowPinModal(true)}
-            class="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/40 transition active:scale-95"
+            onClick={handleLogout}
+            class="inline-flex items-center space-x-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 transition active:scale-95"
+            title="Sign out of POS session"
           >
-            <Lock class="w-3.5 h-3.5" />
-            <span>Switch PIN</span>
+            <LogOut class="w-3.5 h-3.5" />
+            <span>Log Out</span>
           </button>
         </div>
       </header>
 
-      {/* Selected Customer HUD Bar */}
-      {selectedCustomer ? (
-        <div class="flex items-center justify-between bg-emerald-950/40 border border-emerald-700/50 rounded-xl px-3 py-2.5 mb-3 shadow-sm">
-          <div class="flex items-center space-x-3">
-            <div class="w-8 h-8 rounded-full bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-              <User class="w-4 h-4" />
-            </div>
-            <div>
-              <div class="flex items-center space-x-2">
-                <span class="text-xs font-bold text-white tracking-wide">
-                  {selectedCustomer.first_name} {selectedCustomer.last_name || ""}
-                </span>
-                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Registered Client
-                </span>
-                {selectedCustomer.company_name && (
-                  <span class="text-[11px] text-zinc-300 flex items-center space-x-1 font-medium">
-                    <Building class="w-3 h-3 text-zinc-400" />
-                    <span>{selectedCustomer.company_name}</span>
+      {/* Customer Bar: Selected Client HUD OR Default Admin Client Notice */}
+      {selectedCustomer
+        ? (
+          <div class="flex items-center justify-between bg-emerald-950/40 border border-emerald-700/50 rounded-xl px-3 py-2.5 mb-3 shadow-sm">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-full bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                <User class="w-4 h-4" />
+              </div>
+              <div>
+                <div class="flex items-center space-x-2">
+                  <span class="text-xs font-bold text-white tracking-wide">
+                    {selectedCustomer.first_name}{" "}
+                    {selectedCustomer.last_name || ""}
                   </span>
-                )}
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Registered Client
+                  </span>
+                  {selectedCustomer.company_name && (
+                    <span class="text-[11px] text-zinc-300 flex items-center space-x-1 font-medium">
+                      <Building class="w-3 h-3 text-zinc-400" />
+                      <span>{selectedCustomer.company_name}</span>
+                    </span>
+                  )}
+                </div>
+                <div class="flex items-center space-x-3 text-[10px] text-zinc-400 font-mono mt-0.5">
+                  <span class="flex items-center space-x-1">
+                    <Phone class="w-3 h-3 text-zinc-500" />
+                    <span>{selectedCustomer.phone || "No phone"}</span>
+                  </span>
+                  <span class="flex items-center space-x-1">
+                    <Mail class="w-3 h-3 text-zinc-500" />
+                    <span>{selectedCustomer.email}</span>
+                  </span>
+                </div>
               </div>
-              <div class="flex items-center space-x-3 text-[10px] text-zinc-400 font-mono mt-0.5">
-                <span class="flex items-center space-x-1">
-                  <Phone class="w-3 h-3 text-zinc-500" />
-                  <span>{selectedCustomer.phone || "No phone"}</span>
-                </span>
-                <span class="flex items-center space-x-1">
-                  <Mail class="w-3 h-3 text-zinc-500" />
-                  <span>{selectedCustomer.email}</span>
-                </span>
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              setSelectedCustomer(null);
-              setStatusNotice("Customer unlinked from current session.");
-            }}
-            class="inline-flex items-center space-x-1 text-[11px] text-zinc-400 hover:text-red-400 px-2.5 py-1.5 rounded-lg bg-[#2C2C2E] border border-[#3A3A3C] transition active:scale-95"
-            title="Unlink Customer"
-          >
-            <X class="w-3.5 h-3.5" />
-            <span>Unlink</span>
-          </button>
-        </div>
-      ) : (
-        /* Customer Search Bar with Quick Add Trigger */
-        <div class="relative mb-3">
-          <div class="flex items-center space-x-2">
-            <div class="relative flex-1">
-              <User class="absolute left-3 top-2.5 w-4 h-4 text-zinc-400" />
-              <input
-                type="text"
-                value={customerSearchInput}
-                onInput={(e) => handleCustomerSearch((e.target as HTMLInputElement).value)}
-                onFocus={() => setShowCustomerDropdown(true)}
-                placeholder="Search registered client by name, phone, email, or company..."
-                class="w-full bg-[#1C1C1E] border border-[#2C2C2E] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
-              />
-              {customerSearchInput && (
-                <button
-                  onClick={() => {
-                    setCustomerSearchInput("");
-                    setCustomerResults([]);
-                    setShowCustomerDropdown(false);
-                  }}
-                  class="absolute right-2.5 top-2.5 text-zinc-500 hover:text-white"
-                >
-                  <X class="w-3.5 h-3.5" />
-                </button>
-              )}
             </div>
             <button
-              onClick={() => openQuickCustomerModal(customerSearchInput)}
-              class="inline-flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition active:scale-95 shadow whitespace-nowrap"
-              title="Add a new customer not in the database"
+              onClick={() => {
+                setSelectedCustomer(null);
+                setStatusNotice(
+                  "Unlinked client. Defaulting to logged-in staff account.",
+                );
+              }}
+              class="inline-flex items-center space-x-1 text-[11px] text-zinc-400 hover:text-red-400 px-2.5 py-1.5 rounded-lg bg-[#2C2C2E] border border-[#3A3A3C] transition active:scale-95"
+              title="Unlink Customer (Default to Staff)"
             >
-              <UserPlus class="w-3.5 h-3.5" />
-              <span>+ Quick Customer</span>
+              <X class="w-3.5 h-3.5" />
+              <span>Unlink (Use Staff)</span>
+            </button>
+          </div>
+        )
+        : (
+          <div class="relative mb-3">
+            <div class="flex items-center space-x-2">
+              <div class="relative flex-1">
+                <User class="absolute left-3 top-2.5 w-4 h-4 text-zinc-400" />
+                <input
+                  type="text"
+                  value={customerSearchInput}
+                  onInput={(e) =>
+                    handleCustomerSearch((e.target as HTMLInputElement).value)}
+                  onFocus={() => setShowCustomerDropdown(true)}
+                  placeholder={`Search registered customer (or leave blank to default to ${activeAdmin.first_name} ${
+                    activeAdmin.last_name || ""
+                  })...`}
+                  class="w-full bg-[#1C1C1E] border border-[#2C2C2E] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
+                />
+                {customerSearchInput && (
+                  <button
+                    onClick={() => {
+                      setCustomerSearchInput("");
+                      setCustomerResults([]);
+                      setShowCustomerDropdown(false);
+                    }}
+                    class="absolute right-2.5 top-2.5 text-zinc-500 hover:text-white"
+                  >
+                    <X class="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => openQuickCustomerModal(customerSearchInput)}
+                class="inline-flex items-center space-x-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition active:scale-95 shadow whitespace-nowrap"
+                title="Add a new customer profile"
+              >
+                <UserPlus class="w-3.5 h-3.5" />
+                <span>+ Quick Customer</span>
+              </button>
+            </div>
+
+            {/* Autocomplete Suggestions Dropdown with Live Medusa Search */}
+            {showCustomerDropdown && customerSearchInput.trim().length > 0 && (
+              <div class="absolute left-0 right-0 top-full mt-1 bg-[#1C1C1E] border border-[#3A3A3C] rounded-xl shadow-2xl z-40 max-h-60 overflow-y-auto p-1.5">
+                {customerResults.length > 0
+                  ? (
+                    <div class="space-y-1">
+                      <div class="text-[10px] uppercase font-bold text-zinc-500 px-2 py-1 tracking-wider">
+                        Found Registered Clients ({customerResults.length})
+                      </div>
+                      {customerResults.map((c) => (
+                        <div
+                          key={c.id}
+                          onClick={() => selectCustomer(c)}
+                          class="p-2 rounded-lg hover:bg-[#2C2C2E] cursor-pointer flex items-center justify-between transition group"
+                        >
+                          <div>
+                            <div class="flex items-center space-x-2">
+                              <p class="text-xs font-semibold text-zinc-100 group-hover:text-white">
+                                {c.first_name} {c.last_name || ""}
+                              </p>
+                              <span class="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                Registered
+                              </span>
+                              {c.company_name && (
+                                <span class="text-[10px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
+                                  {c.company_name}
+                                </span>
+                              )}
+                            </div>
+                            <p class="text-[10px] text-zinc-400 font-mono">
+                              {c.phone || "No phone"} • {c.email}
+                            </p>
+                          </div>
+                          <span class="text-[11px] font-medium text-blue-400 group-hover:underline">
+                            Select →
+                          </span>
+                        </div>
+                      ))}
+                      <div class="border-t border-[#2C2C2E] pt-1 mt-1">
+                        <button
+                          onClick={() =>
+                            openQuickCustomerModal(customerSearchInput)}
+                          class="w-full text-left p-2 rounded-lg hover:bg-[#2C2C2E] text-xs text-emerald-400 font-semibold flex items-center space-x-1.5"
+                        >
+                          <UserPlus class="w-3.5 h-3.5" />
+                          <span>
+                            Not listed? Register new client
+                            "{customerSearchInput}"
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  )
+                  : (
+                    <div class="p-3 text-center">
+                      <p class="text-xs text-zinc-400 mb-2">
+                        No registered client found matching
+                        "<span class="text-white font-medium">
+                          {customerSearchInput}
+                        </span>"
+                      </p>
+                      <button
+                        onClick={() =>
+                          openQuickCustomerModal(customerSearchInput)}
+                        class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition active:scale-95 shadow"
+                      >
+                        <UserPlus class="w-3.5 h-3.5" />
+                        <span>Quick Register "{customerSearchInput}"</span>
+                      </button>
+                    </div>
+                  )}
+              </div>
+            )}
+
+            {/* Fallback Notice */}
+            <div class="flex items-center justify-between text-[11px] text-zinc-500 mt-1 px-1">
+              <span>
+                Default Client:{" "}
+                <strong class="text-zinc-300">
+                  {activeAdmin.first_name} {activeAdmin.last_name || ""}
+                </strong>{" "}
+                ({activeAdmin.email})
+              </span>
+              <span>
+                All sales &amp; repairs will be tagged under staff account if
+                unselected
+              </span>
+            </div>
+          </div>
+        )}
+
+      {/* ==================================================== */}
+      {/* TAB 1: COUNTER POS WORKSPACE                         */}
+      {/* ==================================================== */}
+      {activeTab === "counter" && (
+        <div class="flex-1 flex flex-col">
+          {/* Barcode Search & Custom Item Button */}
+          <div class="flex items-center space-x-2 mb-4">
+            <div class="relative flex-1">
+              <Barcode class="absolute left-3 top-2.5 w-4 h-4 text-zinc-400" />
+              <input
+                id="manual-scan-input"
+                type="text"
+                value={scanInput}
+                onInput={(e) =>
+                  setScanInput((e.target as HTMLInputElement).value)}
+                placeholder="Scan barcode gun or enter SKU (e.g. NP04011448, REP-10023, C02G4120MD6R)..."
+                class="w-full bg-[#1C1C1E] border border-[#2C2C2E] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
+              />
+            </div>
+            <button
+              onClick={() => {
+                handleScanCode(scanInput);
+                setScanInput("");
+              }}
+              class="inline-flex items-center space-x-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition active:scale-95 shadow"
+            >
+              <Search class="w-3.5 h-3.5" />
+              <span>Lookup</span>
+            </button>
+            <button
+              onClick={() => setShowCustomItemModal(true)}
+              class="inline-flex items-center space-x-1 px-3 py-2 bg-amber-600/30 hover:bg-amber-600/40 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold transition active:scale-95 shadow"
+              title="Add non-registered or custom item to cart"
+            >
+              <Plus class="w-3.5 h-3.5" />
+              <span>+ Custom Item</span>
             </button>
           </div>
 
-          {/* Autocomplete Dropdown */}
-          {showCustomerDropdown && customerSearchInput.trim().length > 0 && (
-            <div class="absolute left-0 right-0 top-full mt-1 bg-[#1C1C1E] border border-[#3A3A3C] rounded-xl shadow-2xl z-40 max-h-60 overflow-y-auto p-1.5">
-              {customerResults.length > 0 ? (
-                <div class="space-y-1">
-                  <div class="text-[10px] uppercase font-bold text-zinc-500 px-2 py-1 tracking-wider">
-                    Found Clients ({customerResults.length})
-                  </div>
-                  {customerResults.map((c) => (
-                    <div
-                      key={c.id}
-                      onClick={() => selectCustomer(c)}
-                      class="p-2 rounded-lg hover:bg-[#2C2C2E] cursor-pointer flex items-center justify-between transition group"
-                    >
-                      <div>
-                        <div class="flex items-center space-x-2">
-                          <p class="text-xs font-semibold text-zinc-100 group-hover:text-white">
-                            {c.first_name} {c.last_name || ""}
-                          </p>
-                          {c.company_name && (
-                            <span class="text-[10px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">
-                              {c.company_name}
-                            </span>
-                          )}
-                        </div>
-                        <p class="text-[10px] text-zinc-400 font-mono">
-                          {c.phone || "No phone"} • {c.email}
-                        </p>
-                      </div>
-                      <span class="text-[11px] font-medium text-blue-400 group-hover:underline">
-                        Select →
-                      </span>
-                    </div>
-                  ))}
-                  <div class="border-t border-[#2C2C2E] pt-1 mt-1">
-                    <button
-                      onClick={() => openQuickCustomerModal(customerSearchInput)}
-                      class="w-full text-left p-2 rounded-lg hover:bg-[#2C2C2E] text-xs text-emerald-400 font-semibold flex items-center space-x-1.5"
-                    >
-                      <UserPlus class="w-3.5 h-3.5" />
-                      <span>Not listed? Register new customer "{customerSearchInput}"</span>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div class="p-3 text-center">
-                  <p class="text-xs text-zinc-400 mb-2">
-                    No client found matching "<span class="text-white font-medium">{customerSearchInput}</span>"
-                  </p>
-                  <button
-                    onClick={() => openQuickCustomerModal(customerSearchInput)}
-                    class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition active:scale-95 shadow"
-                  >
-                    <UserPlus class="w-3.5 h-3.5" />
-                    <span>Quick Register "{customerSearchInput}"</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Barcode Search Bar */}
-      <div class="flex items-center space-x-2 mb-4">
-        <div class="relative flex-1">
-          <Barcode class="absolute left-3 top-2.5 w-4 h-4 text-zinc-400" />
-          <input
-            id="manual-scan-input"
-            type="text"
-            value={scanInput}
-            onInput={(e) => setScanInput((e.target as HTMLInputElement).value)}
-            placeholder="Scan barcode gun or enter SKU (e.g. NP04011448, REP-10023, C02G4120MD6R)..."
-            class="w-full bg-[#1C1C1E] border border-[#2C2C2E] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
-          />
-        </div>
-        <button
-          onClick={() => {
-            handleScanCode(scanInput);
-            setScanInput("");
-          }}
-          class="inline-flex items-center space-x-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition active:scale-95 shadow"
-        >
-          <Search class="w-3.5 h-3.5" />
-          <span>Scan / Lookup</span>
-        </button>
-      </div>
-
-      {/* Main Workspace Layout (2 columns) */}
-      <div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Left: Catalog */}
-        <section class="bg-[#1C1C1E] border border-[#2C2C2E] rounded-xl p-3 flex flex-col">
-          <div class="flex items-center justify-between mb-2">
-            <h2 class="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-              Parts &amp; Services Catalog
-            </h2>
-            <span class="text-[10px] text-zinc-500">Live Medusa v2 Sync</span>
-          </div>
-          <div class="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[500px]">
-            {catalog.map((part) => (
-              <div
-                key={part.id}
-                onClick={() => addToCart(part)}
-                class="bg-[#2C2C2E] hover:bg-zinc-700/60 p-2.5 rounded-lg border border-[#3A3A3C] flex items-center justify-between cursor-pointer transition active:scale-[0.99] group"
-              >
-                <div>
-                  <p class="text-xs font-medium text-zinc-100 group-hover:text-white">{part.title}</p>
-                  <p class="text-[10px] text-zinc-400 font-mono">
-                    SKU: {part.sku || "N/A"} • Barcode: {part.barcode || "N/A"}
-                  </p>
-                </div>
-                <div class="text-right">
-                  <span class="text-xs font-bold text-blue-400">
-                    KES {part.price.toFixed(2)}
-                  </span>
-                  <div class="text-[10px] text-zinc-400 flex items-center justify-end space-x-0.5">
-                    <Plus class="w-3 h-3 text-zinc-400" />
-                    <span>Add</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Right: Cart & Tender */}
-        <section class="bg-[#1C1C1E] border border-[#2C2C2E] rounded-xl p-3 flex flex-col justify-between">
-          <div>
-            <div class="flex items-center justify-between mb-2">
-              <div class="flex items-center space-x-2">
-                <ShoppingCart class="w-3.5 h-3.5 text-zinc-400" />
+          {/* 2-Column Register Grid */}
+          <div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Left: Catalog */}
+            <section class="bg-[#1C1C1E] border border-[#2C2C2E] rounded-xl p-3 flex flex-col">
+              <div class="flex items-center justify-between mb-2">
                 <h2 class="text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                  Active Sale Cart ({cart.length} items)
+                  Parts &amp; Services Catalog
                 </h2>
-              </div>
-              {cart.length > 0 && (
-                <button
-                  onClick={clearCart}
-                  class="inline-flex items-center space-x-1 text-[11px] text-red-400 hover:text-red-300"
-                >
-                  <Trash2 class="w-3 h-3" />
-                  <span>Clear</span>
-                </button>
-              )}
-            </div>
-
-            <div class="max-h-56 overflow-y-auto space-y-2 mb-3 pr-1">
-              {cart.length === 0 ? (
-                <div class="text-center py-10 text-xs text-zinc-500">
-                  Cart is empty. Scan an item or tap a part from catalog.
-                </div>
-              ) : (
-                cart.map((item) => (
-                  <div
-                    key={item.id}
-                    class="bg-[#2C2C2E] p-2 rounded-lg border border-[#3A3A3C] flex items-center justify-between"
-                  >
-                    <div class="flex-1 mr-2">
-                      <p class="text-xs text-zinc-200 line-clamp-1">{item.part.title}</p>
-                      <p class="text-[10px] text-zinc-400">
-                        KES {item.part.price.toFixed(2)} each
-                      </p>
-                    </div>
-                    <div class="flex items-center space-x-2">
-                      <button
-                        onClick={() => updateQuantity(item.part.id, -1)}
-                        class="w-6 h-6 rounded bg-[#3A3A3C] hover:bg-zinc-600 flex items-center justify-center text-xs font-bold text-zinc-200 transition"
-                      >
-                        <Minus class="w-3 h-3" />
-                      </button>
-                      <span class="text-xs font-mono w-5 text-center">
-                        {item.quantity}
-                      </span>
-                      <button
-                        onClick={() => updateQuantity(item.part.id, 1)}
-                        class="w-6 h-6 rounded bg-[#3A3A3C] hover:bg-zinc-600 flex items-center justify-center text-xs font-bold text-zinc-200 transition"
-                      >
-                        <Plus class="w-3 h-3" />
-                      </button>
-                      <span class="text-xs font-bold text-emerald-400 w-20 text-right font-mono">
-                        KES {(item.part.price * item.quantity).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Totals & Tender Pad */}
-          <div class="border-t border-[#2C2C2E] pt-3">
-            <div class="space-y-1 mb-3">
-              <div class="flex justify-between text-xs text-zinc-400">
-                <span>Subtotal:</span>
-                <span class="font-mono">KES {subtotal.toFixed(2)}</span>
-              </div>
-              <div class="flex justify-between text-xs text-zinc-400">
-                <span>VAT (16%):</span>
-                <span class="font-mono">KES {tax.toFixed(2)}</span>
-              </div>
-              <div class="flex justify-between text-sm font-bold text-white pt-1 border-t border-[#2C2C2E]">
-                <span>TOTAL DUE:</span>
-                <span class="text-blue-400 font-mono">KES {grandTotal.toFixed(2)}</span>
-              </div>
-            </div>
-
-            {/* Quick Cash Buttons */}
-            <div class="grid grid-cols-5 gap-1.5 mb-2">
-              <button
-                onClick={() => setTenderInput(grandTotal.toFixed(2))}
-                class="py-1.5 bg-[#2C2C2E] hover:bg-zinc-700 text-[11px] rounded font-semibold text-zinc-200 border border-[#3A3A3C] transition"
-              >
-                Exact
-              </button>
-              <button
-                onClick={() => setTenderInput("500.00")}
-                class="py-1.5 bg-[#2C2C2E] hover:bg-zinc-700 text-[11px] rounded font-semibold text-zinc-200 border border-[#3A3A3C] transition"
-              >
-                500
-              </button>
-              <button
-                onClick={() => setTenderInput("1000.00")}
-                class="py-1.5 bg-[#2C2C2E] hover:bg-zinc-700 text-[11px] rounded font-semibold text-zinc-200 border border-[#3A3A3C] transition"
-              >
-                1,000
-              </button>
-              <button
-                onClick={() => setTenderInput("2000.00")}
-                class="py-1.5 bg-[#2C2C2E] hover:bg-zinc-700 text-[11px] rounded font-semibold text-zinc-200 border border-[#3A3A3C] transition"
-              >
-                2,000
-              </button>
-              <button
-                onClick={() => setTenderInput("5000.00")}
-                class="py-1.5 bg-[#2C2C2E] hover:bg-zinc-700 text-[11px] rounded font-semibold text-zinc-200 border border-[#3A3A3C] transition"
-              >
-                5,000
-              </button>
-            </div>
-
-            <div class="flex items-center justify-between bg-[#2C2C2E] p-2 rounded-lg border border-[#3A3A3C] mb-3">
-              <div class="flex items-center space-x-2">
-                <span class="text-xs text-zinc-400">Tendered:</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={tenderInput}
-                  onInput={(e) => setTenderInput((e.target as HTMLInputElement).value)}
-                  placeholder="0.00"
-                  class="w-24 bg-[#1C1C1E] border border-[#3A3A3C] rounded px-2 py-1 text-xs text-white font-mono focus:outline-none"
-                />
-              </div>
-              <div class="text-right">
-                <span class="text-xs text-zinc-400 mr-2">Change:</span>
-                <span class="text-xs font-bold text-emerald-400 font-mono">
-                  KES {changeDue.toFixed(2)}
+                <span class="text-[10px] text-zinc-500">
+                  Live Medusa v2 Sync
                 </span>
               </div>
+              <div class="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[500px]">
+                {catalog.map((part) => (
+                  <div
+                    key={part.id}
+                    onClick={() => addToCart(part)}
+                    class="bg-[#2C2C2E] hover:bg-zinc-700/60 p-2.5 rounded-lg border border-[#3A3A3C] flex items-center justify-between cursor-pointer transition active:scale-[0.99] group"
+                  >
+                    <div>
+                      <p class="text-xs font-medium text-zinc-100 group-hover:text-white">
+                        {part.title}
+                      </p>
+                      <p class="text-[10px] text-zinc-400 font-mono">
+                        SKU: {part.sku || "N/A"} • Barcode:{" "}
+                        {part.barcode || "N/A"}
+                      </p>
+                    </div>
+                    <div class="text-right">
+                      <span class="text-xs font-bold text-blue-400">
+                        KES {part.price.toFixed(2)}
+                      </span>
+                      <div class="text-[10px] text-zinc-400 flex items-center justify-end space-x-0.5">
+                        <Plus class="w-3 h-3 text-zinc-400" />
+                        <span>Add</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Right: Cart & Tender */}
+            <section class="bg-[#1C1C1E] border border-[#2C2C2E] rounded-xl p-3 flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center space-x-2">
+                    <ShoppingCart class="w-3.5 h-3.5 text-zinc-400" />
+                    <h2 class="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                      Active Sale Cart ({cart.length} items)
+                    </h2>
+                  </div>
+                  {cart.length > 0 && (
+                    <button
+                      onClick={clearCart}
+                      class="inline-flex items-center space-x-1 text-[11px] text-red-400 hover:text-red-300"
+                    >
+                      <Trash2 class="w-3 h-3" />
+                      <span>Clear</span>
+                    </button>
+                  )}
+                </div>
+
+                <div class="max-h-56 overflow-y-auto space-y-2 mb-3 pr-1">
+                  {cart.length === 0
+                    ? (
+                      <div class="text-center py-10 text-xs text-zinc-500">
+                        Cart is empty. Scan an item, pick a part, or tap "+
+                        Custom Item".
+                      </div>
+                    )
+                    : (
+                      cart.map((item) => (
+                        <div
+                          key={item.id}
+                          class="bg-[#2C2C2E] p-2 rounded-lg border border-[#3A3A3C] flex items-center justify-between"
+                        >
+                          <div class="flex-1 mr-2">
+                            <div class="flex items-center space-x-1.5">
+                              <p class="text-xs text-zinc-200 line-clamp-1">
+                                {item.part.title}
+                              </p>
+                              {item.part.isCustom && (
+                                <span class="text-[9px] font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1 rounded">
+                                  Custom
+                                </span>
+                              )}
+                            </div>
+                            <p class="text-[10px] text-zinc-400">
+                              KES {item.part.price.toFixed(2)} each
+                            </p>
+                          </div>
+                          <div class="flex items-center space-x-2">
+                            <button
+                              onClick={() => updateQuantity(item.part.id, -1)}
+                              class="w-6 h-6 rounded bg-[#3A3A3C] hover:bg-zinc-600 flex items-center justify-center text-xs font-bold text-zinc-200 transition"
+                            >
+                              <Minus class="w-3 h-3" />
+                            </button>
+                            <span class="text-xs font-mono w-5 text-center">
+                              {item.quantity}
+                            </span>
+                            <button
+                              onClick={() => updateQuantity(item.part.id, 1)}
+                              class="w-6 h-6 rounded bg-[#3A3A3C] hover:bg-zinc-600 flex items-center justify-center text-xs font-bold text-zinc-200 transition"
+                            >
+                              <Plus class="w-3 h-3" />
+                            </button>
+                            <span class="text-xs font-bold text-emerald-400 w-20 text-right font-mono">
+                              KES {(item.part.price * item.quantity).toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                </div>
+              </div>
+
+              {/* Totals & Quick Tender */}
+              <div class="border-t border-[#2C2C2E] pt-3">
+                <div class="space-y-1 mb-3">
+                  <div class="flex justify-between text-xs text-zinc-400">
+                    <span>Subtotal:</span>
+                    <span class="font-mono">KES {subtotal.toFixed(2)}</span>
+                  </div>
+                  <div class="flex justify-between text-xs text-zinc-400">
+                    <span>VAT (16%):</span>
+                    <span class="font-mono">KES {tax.toFixed(2)}</span>
+                  </div>
+                  <div class="flex justify-between text-sm font-bold text-white pt-1 border-t border-[#2C2C2E]">
+                    <span>TOTAL DUE:</span>
+                    <span class="text-blue-400 font-mono">
+                      KES {grandTotal.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Cash Buttons */}
+                <div class="grid grid-cols-5 gap-1.5 mb-2">
+                  <button
+                    onClick={() => setTenderInput(grandTotal.toFixed(2))}
+                    class="py-1.5 bg-[#2C2C2E] hover:bg-zinc-700 text-[11px] rounded font-semibold text-zinc-200 border border-[#3A3A3C] transition"
+                  >
+                    Exact
+                  </button>
+                  <button
+                    onClick={() => setTenderInput("500.00")}
+                    class="py-1.5 bg-[#2C2C2E] hover:bg-zinc-700 text-[11px] rounded font-semibold text-zinc-200 border border-[#3A3A3C] transition"
+                  >
+                    500
+                  </button>
+                  <button
+                    onClick={() => setTenderInput("1000.00")}
+                    class="py-1.5 bg-[#2C2C2E] hover:bg-zinc-700 text-[11px] rounded font-semibold text-zinc-200 border border-[#3A3A3C] transition"
+                  >
+                    1,000
+                  </button>
+                  <button
+                    onClick={() => setTenderInput("2000.00")}
+                    class="py-1.5 bg-[#2C2C2E] hover:bg-zinc-700 text-[11px] rounded font-semibold text-zinc-200 border border-[#3A3A3C] transition"
+                  >
+                    2,000
+                  </button>
+                  <button
+                    onClick={() => setTenderInput("5000.00")}
+                    class="py-1.5 bg-[#2C2C2E] hover:bg-zinc-700 text-[11px] rounded font-semibold text-zinc-200 border border-[#3A3A3C] transition"
+                  >
+                    5,000
+                  </button>
+                </div>
+
+                <div class="flex items-center justify-between bg-[#2C2C2E] p-2 rounded-lg border border-[#3A3A3C] mb-3">
+                  <div class="flex items-center space-x-2">
+                    <span class="text-xs text-zinc-400">Tendered:</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={tenderInput}
+                      onInput={(e) =>
+                        setTenderInput((e.target as HTMLInputElement).value)}
+                      placeholder="0.00"
+                      class="w-24 bg-[#1C1C1E] border border-[#3A3A3C] rounded px-2 py-1 text-xs text-white font-mono focus:outline-none"
+                    />
+                  </div>
+                  <div class="text-right">
+                    <span class="text-xs text-zinc-400 mr-2">Change:</span>
+                    <span class="text-xs font-bold text-emerald-400 font-mono">
+                      KES {changeDue.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Checkout & Print Buttons */}
+                <div class="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={printReceipt}
+                    class="inline-flex items-center justify-center space-x-1.5 py-2.5 bg-[#2C2C2E] hover:bg-zinc-700 border border-[#3A3A3C] rounded-lg text-xs font-semibold text-zinc-200 transition active:scale-95"
+                  >
+                    <Printer class="w-4 h-4" />
+                    <span>Print 58mm ESC/POS</span>
+                  </button>
+                  <button
+                    onClick={completeCheckout}
+                    disabled={cart.length === 0}
+                    class="inline-flex items-center justify-center space-x-1.5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition active:scale-95 shadow"
+                  >
+                    <CheckCircle2 class="w-4 h-4" />
+                    <span>Charge Cash &amp; Complete</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB 2: WORKSHOP INTAKE & REPAIRS MODULE              */}
+      {/* ==================================================== */}
+      {activeTab === "workshop" && (
+        <div class="flex-1 flex flex-col">
+          {/* Top Actions: Search, Filter Tabs, and Book Intake Button */}
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-4 bg-[#1C1C1E] border border-[#2C2C2E] rounded-xl p-3">
+            <div class="flex items-center space-x-2 flex-1 min-w-[240px]">
+              <Search class="w-4 h-4 text-zinc-400" />
+              <input
+                type="text"
+                value={repairSearchQuery}
+                onInput={(e) =>
+                  setRepairSearchQuery((e.target as HTMLInputElement).value)}
+                placeholder="Search ticket #, client, device model, or serial..."
+                class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+              />
             </div>
 
-            {/* Action Buttons */}
-            <div class="grid grid-cols-2 gap-2">
+            {/* Status Filter Tabs */}
+            <div class="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+              {[
+                { id: "all", label: "All" },
+                { id: "pending_dropoff", label: "Dropoff" },
+                { id: "received", label: "Received" },
+                { id: "diagnosing", label: "Diagnosing" },
+                { id: "awaiting_approval", label: "Approval" },
+                { id: "repairing", label: "Repairing" },
+                { id: "ready", label: "Ready" },
+                { id: "completed", label: "Completed" },
+                { id: "collected", label: "Collected" },
+                { id: "cancelled", label: "Cancelled" },
+                { id: "refunded", label: "Refunded" },
+              ].map((st) => (
+                <button
+                  key={st.id}
+                  onClick={() => setRepairStatusFilter(st.id)}
+                  class={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                    repairStatusFilter === st.id
+                      ? "bg-zinc-800 text-white border border-zinc-700 shadow-sm"
+                      : "text-zinc-400 hover:text-white hover:bg-zinc-800/40"
+                  }`}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+
+            <div class="flex items-center space-x-2">
               <button
-                onClick={printReceipt}
-                class="inline-flex items-center justify-center space-x-1.5 py-2.5 bg-[#2C2C2E] hover:bg-zinc-700 border border-[#3A3A3C] rounded-lg text-xs font-semibold text-zinc-200 transition active:scale-95"
+                onClick={loadRepairs}
+                class="p-2 bg-[#2C2C2E] hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs transition"
+                title="Refresh Repairs"
               >
-                <Printer class="w-4 h-4" />
-                <span>Print 58mm ESC/POS</span>
+                <RefreshCw class="w-3.5 h-3.5" />
               </button>
               <button
-                onClick={completeCheckout}
-                disabled={cart.length === 0}
-                class="inline-flex items-center justify-center space-x-1.5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition active:scale-95 shadow"
+                onClick={() => setShowIntakeModal(true)}
+                class="inline-flex items-center space-x-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition active:scale-95 shadow"
               >
-                <CheckCircle2 class="w-4 h-4" />
-                <span>Charge Cash &amp; Complete</span>
+                <Plus class="w-3.5 h-3.5" />
+                <span>+ Book Repair Intake</span>
               </button>
             </div>
           </div>
-        </section>
-      </div>
+
+          {/* Repairs Grid */}
+          <div class="flex-1 overflow-y-auto">
+            {repairsLoading
+              ? (
+                <div class="text-center py-20 text-xs text-zinc-400">
+                  Loading repair tickets from Medusa workshop...
+                </div>
+              )
+              : filteredRepairs.length === 0
+              ? (
+                <div class="text-center py-20 bg-[#1C1C1E] border border-[#2C2C2E] rounded-xl">
+                  <Wrench class="w-8 h-8 text-zinc-600 mx-auto mb-2" />
+                  <p class="text-sm font-semibold text-zinc-300">
+                    No repair tickets found
+                  </p>
+                  <p class="text-xs text-zinc-500 mt-1">
+                    Tap "+ Book Repair Intake" to register a new customer device
+                  </p>
+                </div>
+              )
+              : (
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {filteredRepairs.map((r) => {
+                    const bal = r.balance_due ??
+                      Math.max(
+                        0,
+                        (r.total_estimate || 0) - (r.deposit_amount || 0),
+                      );
+                    const payBadge = getPaymentBadge(r);
+                    return (
+                      <div
+                        key={r.id}
+                        onClick={() => setSelectedTicket(r)}
+                        class="bg-[#1C1C1E] hover:bg-[#222224] border border-[#2C2C2E] hover:border-zinc-700 p-4 rounded-xl cursor-pointer transition flex flex-col justify-between group shadow-sm hover:shadow-md"
+                      >
+                        <div>
+                          <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-mono font-bold text-blue-400 group-hover:underline">
+                              #{r.ticket_number}
+                            </span>
+                            <div class="flex items-center space-x-1.5">
+                              <span
+                                class={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${payBadge.badgeClass}`}
+                              >
+                                {payBadge.label}
+                              </span>
+                              <span
+                                class={`text-[10px] font-semibold capitalize px-2 py-0.5 rounded-full border ${getStatusBadge(
+                                  r.status,
+                                )}`}
+                              >
+                                {r.status.replace("_", " ")}
+                              </span>
+                            </div>
+                          </div>
+
+                          <h3 class="text-xs font-bold text-zinc-100 line-clamp-1 mb-1">
+                            {r.device_name || r.device?.model_name || "Device"}
+                          </h3>
+                          <p class="text-[11px] text-zinc-400 line-clamp-2 mb-3">
+                            {r.issue_description}
+                          </p>
+
+                          <div class="space-y-1 text-[10px] text-zinc-400 font-mono mb-3 pt-2 border-t border-[#2C2C2E]">
+                            <div class="flex justify-between">
+                              <span class="text-zinc-500">Client:</span>
+                              <span class="text-zinc-300 truncate max-w-[150px]">
+                                {r.customer_name || "Staff Client"}
+                              </span>
+                            </div>
+                            {r.serial_number && (
+                              <div class="flex justify-between">
+                                <span class="text-zinc-500">Serial:</span>
+                                <span class="text-zinc-300">
+                                  {r.serial_number}
+                                </span>
+                              </div>
+                            )}
+                            {r.technician_name && (
+                              <div class="flex justify-between">
+                                <span class="text-zinc-500">Tech:</span>
+                                <span class="text-zinc-300">
+                                  {r.technician_name}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div class="flex items-center justify-between pt-2 border-t border-[#2C2C2E]">
+                          <div>
+                            <span class="text-[10px] text-zinc-500 block">
+                              Balance Due:
+                            </span>
+                            <span class="text-xs font-bold text-emerald-400 font-mono">
+                              KES {bal.toFixed(2)}
+                            </span>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              tenderRepairBalance(r);
+                            }}
+                            class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition active:scale-95 shadow flex items-center space-x-1"
+                          >
+                            <ShoppingCart class="w-3 h-3" />
+                            <span>Tender</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+          </div>
+        </div>
+      )}
 
       {/* Footer Status Bar */}
-      <footer class="mt-4 pt-2 border-t border-[#2C2C2E] text-[11px] text-zinc-400 font-mono flex items-center justify-between">
+      <footer class="mt-3 pt-2 border-t border-[#2C2C2E] text-[11px] text-zinc-400 font-mono flex items-center justify-between">
         <span>Status: {statusNotice}</span>
-        <span class="text-zinc-600">Fresh.js 2.x • Tailwind v4 • Medusa v2</span>
+        <span class="text-zinc-600">
+          Urban Device Care • Medusa v2 Admin POS
+        </span>
       </footer>
 
-      {/* PIN Handover Modal */}
-      {showPinModal && (
-        <div class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div class="bg-[#1C1C1E] border border-[#3A3A3C] rounded-xl p-5 max-w-xs w-full shadow-2xl">
-            <h3 class="text-sm font-bold mb-1 text-white">Staff PIN Handover</h3>
-            <p class="text-xs text-zinc-400 mb-4">Enter 4-digit PIN (e.g. 1234 or 5555):</p>
-            <input
-              type="password"
-              maxLength={4}
-              value={pinInput}
-              onInput={(e) => setPinInput((e.target as HTMLInputElement).value)}
-              class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg p-2.5 text-center text-xl tracking-widest text-white mb-4 focus:outline-none focus:border-blue-500 font-mono"
-            />
-            <div class="grid grid-cols-2 gap-2">
+      {/* ==================================================== */}
+      {/* MODAL 1: REPAIR TICKET DETAILS MODAL                */}
+      {/* ==================================================== */}
+      {selectedTicket && (
+        <div class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div class="bg-[#1C1C1E] border border-[#3A3A3C] rounded-2xl p-5 max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-3 mb-4 border-b border-[#2C2C2E]">
+              <div class="flex items-center space-x-2.5">
+                <div class="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold">
+                  <Wrench class="w-4 h-4" />
+                </div>
+                <div>
+                  <div class="flex items-center space-x-2">
+                    <h3 class="text-sm font-bold text-white">
+                      Repair Ticket #{selectedTicket.ticket_number}
+                    </h3>
+                    <span
+                      class={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${getPaymentBadge(
+                        selectedTicket,
+                      ).badgeClass}`}
+                    >
+                      {getPaymentBadge(selectedTicket).label}
+                    </span>
+                  </div>
+                  <p class="text-[11px] text-zinc-400">
+                    Created:{" "}
+                    {new Date(selectedTicket.created_at).toLocaleString()}
+                  </p>
+                </div>
+              </div>
               <button
-                onClick={() => setShowPinModal(false)}
-                class="py-2 bg-[#2C2C2E] hover:bg-zinc-700 text-xs rounded-lg text-zinc-300 transition"
+                onClick={() => setSelectedTicket(null)}
+                class="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-[#2C2C2E]"
               >
-                Cancel
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+
+            <div class="space-y-3 text-xs">
+              {/* Quick Status Updater */}
+              <div class="bg-[#242426] p-3 rounded-lg border border-[#3A3A3C] flex items-center justify-between gap-2">
+                <div class="flex items-center space-x-2">
+                  <span class="text-[11px] font-semibold text-zinc-300">
+                    Status:
+                  </span>
+                  <select
+                    value={selectedTicket.status}
+                    onChange={(e) =>
+                      handleUpdateTicketStatus(
+                        (e.target as HTMLSelectElement).value,
+                      )}
+                    disabled={updatingTicketStatus}
+                    class="bg-[#1C1C1E] border border-[#3A3A3C] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500 capitalize"
+                  >
+                    <option value="pending_dropoff">Pending Dropoff</option>
+                    <option value="received">Received</option>
+                    <option value="diagnosing">Diagnosing</option>
+                    <option value="awaiting_approval">Awaiting Approval</option>
+                    <option value="repairing">Repairing</option>
+                    <option value="ready">Ready for Pickup</option>
+                    <option value="completed">Completed</option>
+                    <option value="collected">Collected</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="refunded">Refunded</option>
+                  </select>
+                </div>
+                {updatingTicketStatus && (
+                  <span class="text-[10px] text-blue-400 animate-pulse">
+                    Updating...
+                  </span>
+                )}
+              </div>
+
+              {/* Device & Client Card */}
+              <div class="bg-[#2C2C2E] p-3 rounded-lg border border-[#3A3A3C]">
+                <h4 class="font-bold text-zinc-200 mb-1 flex items-center space-x-1.5">
+                  <Laptop class="w-3.5 h-3.5 text-zinc-400" />
+                  <span>
+                    Device: {selectedTicket.device_name ||
+                      selectedTicket.device?.model_name}
+                  </span>
+                </h4>
+                <div class="grid grid-cols-2 gap-2 text-[11px] text-zinc-400 font-mono mt-2">
+                  <div>Serial: {selectedTicket.serial_number || "None"}</div>
+                  <div>
+                    Passcode: {selectedTicket.passcode || "None provided"}
+                  </div>
+                  <div>Brand: {selectedTicket.device?.brand || "Apple"}</div>
+                  <div>Accessories: {selectedTicket.accessories || "None"}</div>
+                  {selectedTicket.device?.condition && (
+                    <div class="col-span-2">
+                      Condition: {selectedTicket.device.condition}
+                    </div>
+                  )}
+                  {selectedTicket.technician_name && (
+                    <div class="col-span-2 text-zinc-300">
+                      Technician: {selectedTicket.technician_name}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Fault & Diagnostics */}
+              <div>
+                <label class="block text-[11px] font-semibold text-zinc-400 mb-0.5">
+                  Fault &amp; Diagnostics
+                </label>
+                <p class="bg-[#2C2C2E] p-2.5 rounded-lg border border-[#3A3A3C] text-zinc-200 text-xs">
+                  {selectedTicket.issue_description}
+                </p>
+              </div>
+
+              {/* Notes & Updates Section */}
+              <div class="bg-[#2C2C2E] p-3 rounded-lg border border-[#3A3A3C] space-y-2">
+                <span class="text-[11px] font-semibold text-zinc-300 block">
+                  Repair Notes &amp; Updates:
+                </span>
+                {selectedTicket.notes && selectedTicket.notes.length > 0
+                  ? (
+                    <div class="space-y-1.5 max-h-28 overflow-y-auto pr-1">
+                      {selectedTicket.notes.map((n) => (
+                        <div
+                          key={n.id}
+                          class="p-2 rounded bg-[#1C1C1E] border border-zinc-700/50 text-[11px] text-zinc-300"
+                        >
+                          <p>{n.content}</p>
+                          <span class="text-[9px] text-zinc-500 font-mono mt-0.5 block">
+                            {new Date(n.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                  : (
+                    <p class="text-[10px] text-zinc-500 italic">
+                      No workshop notes recorded yet.
+                    </p>
+                  )}
+
+                {/* Add Note Input */}
+                <div class="flex items-center space-x-1.5 pt-1">
+                  <input
+                    type="text"
+                    value={ticketNoteInput}
+                    onInput={(e) =>
+                      setTicketNoteInput((e.target as HTMLInputElement).value)}
+                    placeholder="Add technician note..."
+                    class="flex-1 bg-[#1C1C1E] border border-[#3A3A3C] rounded px-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddTicketNote}
+                    disabled={isAddingTicketNote || !ticketNoteInput.trim()}
+                    class="px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-white rounded text-xs font-medium transition"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              {/* Financial Breakdown */}
+              <div class="bg-[#2C2C2E] p-3 rounded-lg border border-[#3A3A3C] space-y-1 font-mono text-xs">
+                <div class="flex justify-between text-zinc-400">
+                  <span>Total Estimate:</span>
+                  <span>
+                    KES {(selectedTicket.total_estimate || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div class="flex justify-between text-zinc-400">
+                  <span>Deposit Paid:</span>
+                  <span>
+                    KES {(selectedTicket.deposit_amount ||
+                      selectedTicket.amount_paid || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div class="flex justify-between text-emerald-400 font-bold pt-1 border-t border-[#3A3A3C]">
+                  <span>Balance Due:</span>
+                  <span>
+                    KES {(selectedTicket.balance_due ??
+                      Math.max(
+                        0,
+                        (selectedTicket.total_estimate || 0) -
+                          (selectedTicket.deposit_amount || 0),
+                      )).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 pt-4 mt-4 border-t border-[#2C2C2E]">
+              <button
+                type="button"
+                onClick={() => setSelectedTicket(null)}
+                class="py-2.5 bg-[#2C2C2E] hover:bg-zinc-700 text-xs font-semibold rounded-lg text-zinc-300 transition"
+              >
+                Close
               </button>
               <button
-                onClick={handlePinSubmit}
-                class="py-2 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white transition"
+                type="button"
+                onClick={() => tenderRepairBalance(selectedTicket)}
+                class="py-2.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg text-white transition flex items-center justify-center space-x-1.5 shadow"
               >
-                Switch Cashier
+                <ShoppingCart class="w-3.5 h-3.5" />
+                <span>Add to Cart / Tender</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Quick Customer Registration Modal */}
+      {/* ==================================================== */}
+      {/* MODAL 2: BOOK REPAIR INTAKE MODAL                   */}
+      {/* ==================================================== */}
+      {showIntakeModal && (
+        <div class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div class="bg-[#1C1C1E] border border-[#3A3A3C] rounded-2xl p-5 max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-3 mb-4 border-b border-[#2C2C2E]">
+              <div class="flex items-center space-x-2.5">
+                <div class="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                  <Wrench class="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 class="text-sm font-bold text-white">
+                    Workshop Repair Intake
+                  </h3>
+                  <p class="text-[11px] text-zinc-400">
+                    Book device into Medusa Workshop System
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowIntakeModal(false)}
+                class="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-[#2C2C2E]"
+              >
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+
+            {intakeError && (
+              <div class="mb-3 p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-400">
+                {intakeError}
+              </div>
+            )}
+
+            <form onSubmit={handleIntakeSubmit} class="space-y-3">
+              {/* Attached Customer Notice */}
+              <div class="bg-[#2C2C2E] p-2.5 rounded-lg border border-[#3A3A3C] flex items-center justify-between">
+                <div>
+                  <span class="text-[10px] text-zinc-400 uppercase font-bold block">
+                    Intake Client:
+                  </span>
+                  <span class="text-xs font-semibold text-white">
+                    {selectedCustomer
+                      ? `${selectedCustomer.first_name} ${
+                        selectedCustomer.last_name || ""
+                      } (${selectedCustomer.phone || selectedCustomer.email})`
+                      : `${activeAdmin.first_name} ${
+                        activeAdmin.last_name || ""
+                      } (Logged-in Staff Account)`}
+                  </span>
+                </div>
+                {!selectedCustomer && (
+                  <button
+                    type="button"
+                    onClick={() => openQuickCustomerModal()}
+                    class="text-[11px] text-emerald-400 hover:underline"
+                  >
+                    + Assign Client
+                  </button>
+                )}
+              </div>
+
+              {/* Device Details */}
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    Brand
+                  </label>
+                  <select
+                    value={intakeForm.brand}
+                    onChange={(e) =>
+                      setIntakeForm({
+                        ...intakeForm,
+                        brand: (e.target as HTMLSelectElement).value,
+                      })}
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="Apple">Apple</option>
+                    <option value="Samsung">Samsung</option>
+                    <option value="Google">Google</option>
+                    <option value="Dell">Dell</option>
+                    <option value="HP">HP</option>
+                    <option value="Lenovo">Lenovo</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    Device Type
+                  </label>
+                  <select
+                    value={intakeForm.deviceType}
+                    onChange={(e) =>
+                      setIntakeForm({
+                        ...intakeForm,
+                        deviceType: (e.target as HTMLSelectElement).value,
+                      })}
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="laptop">Laptop / MacBook</option>
+                    <option value="smartphone">Smartphone / iPhone</option>
+                    <option value="tablet">Tablet / iPad</option>
+                    <option value="desktop">Desktop / Mac Mini</option>
+                    <option value="smartwatch">Smartwatch / Apple Watch</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                  Model Name <span class="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={intakeForm.modelName}
+                  onInput={(e) =>
+                    setIntakeForm({
+                      ...intakeForm,
+                      modelName: (e.target as HTMLInputElement).value,
+                    })}
+                  placeholder="e.g. MacBook Pro 16-inch (M1 Max, A2485) or iPhone 15 Pro"
+                  class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    Serial Number
+                  </label>
+                  <input
+                    type="text"
+                    value={intakeForm.serialNumber}
+                    onInput={(e) =>
+                      setIntakeForm({
+                        ...intakeForm,
+                        serialNumber: (e.target as HTMLInputElement).value,
+                      })}
+                    placeholder="e.g. C02G4120MD6R"
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    IMEI
+                  </label>
+                  <input
+                    type="text"
+                    value={intakeForm.imei}
+                    onInput={(e) =>
+                      setIntakeForm({
+                        ...intakeForm,
+                        imei: (e.target as HTMLInputElement).value,
+                      })}
+                    placeholder="Optional IMEI"
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    Device Condition
+                  </label>
+                  <input
+                    type="text"
+                    value={intakeForm.condition}
+                    onInput={(e) =>
+                      setIntakeForm({
+                        ...intakeForm,
+                        condition: (e.target as HTMLInputElement).value,
+                      })}
+                    placeholder="e.g. Minor scratches, screen cracked"
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    Device Passcode
+                  </label>
+                  <input
+                    type="text"
+                    value={intakeForm.passcode}
+                    onInput={(e) =>
+                      setIntakeForm({
+                        ...intakeForm,
+                        passcode: (e.target as HTMLInputElement).value,
+                      })}
+                    placeholder="e.g. 1234 or Pattern"
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                  Fault / Issue Description <span class="text-red-400">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={2}
+                  value={intakeForm.issueDescription}
+                  onInput={(e) =>
+                    setIntakeForm({
+                      ...intakeForm,
+                      issueDescription: (e.target as HTMLTextAreaElement).value,
+                    })}
+                  placeholder="Describe damage, symptoms, customer report, and requested repair service..."
+                  class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                  Accessories Left With Device
+                </label>
+                <input
+                  type="text"
+                  value={intakeForm.accessories}
+                  onInput={(e) =>
+                    setIntakeForm({
+                      ...intakeForm,
+                      accessories: (e.target as HTMLInputElement).value,
+                    })}
+                  placeholder="e.g. Magsafe 3 Charger 140W, Sleeve, SIM Tray"
+                  class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    Total Estimate (KES)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={intakeForm.totalEstimate}
+                    onInput={(e) =>
+                      setIntakeForm({
+                        ...intakeForm,
+                        totalEstimate: (e.target as HTMLInputElement).value,
+                      })}
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    Deposit Paid (KES)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={intakeForm.depositAmount}
+                    onInput={(e) =>
+                      setIntakeForm({
+                        ...intakeForm,
+                        depositAmount: (e.target as HTMLInputElement).value,
+                      })}
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Compliance & Consent Checkboxes */}
+              <div class="space-y-1.5 pt-1">
+                <label class="flex items-center space-x-2 text-[11px] text-zinc-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={intakeForm.termsAccepted}
+                    onChange={(e) =>
+                      setIntakeForm({
+                        ...intakeForm,
+                        termsAccepted: (e.target as HTMLInputElement).checked,
+                      })}
+                    class="rounded border-zinc-700 bg-zinc-800 text-blue-600 focus:ring-0"
+                  />
+                  <span>Customer accepted Workshop Terms &amp; Conditions</span>
+                </label>
+                <label class="flex items-center space-x-2 text-[11px] text-zinc-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={intakeForm.dataWipedConsent}
+                    onChange={(e) =>
+                      setIntakeForm({
+                        ...intakeForm,
+                        dataWipedConsent: (e.target as HTMLInputElement).checked,
+                      })}
+                    class="rounded border-zinc-700 bg-zinc-800 text-blue-600 focus:ring-0"
+                  />
+                  <span>Data wipe and diagnostics consent confirmed</span>
+                </label>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 pt-3 border-t border-[#2C2C2E]">
+                <button
+                  type="button"
+                  onClick={() => setShowIntakeModal(false)}
+                  class="py-2.5 bg-[#2C2C2E] hover:bg-zinc-700 text-xs font-semibold rounded-lg text-zinc-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isIntaking}
+                  class="py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-bold rounded-lg text-white transition flex items-center justify-center space-x-1.5 shadow"
+                >
+                  <CheckCircle2 class="w-3.5 h-3.5" />
+                  <span>
+                    {isIntaking
+                      ? "Registering Ticket..."
+                      : "Book & Create Ticket"}
+                  </span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* MODAL 3: ADD CUSTOM ITEM MODAL                       */}
+      {/* ==================================================== */}
+      {showCustomItemModal && (
+        <div class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div class="bg-[#1C1C1E] border border-[#3A3A3C] rounded-2xl p-5 max-w-sm w-full shadow-2xl">
+            <div class="flex items-center justify-between pb-3 mb-4 border-b border-[#2C2C2E]">
+              <div class="flex items-center space-x-2">
+                <Tag class="w-4 h-4 text-amber-400" />
+                <h3 class="text-sm font-bold text-white">
+                  Add Custom Item to Cart
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowCustomItemModal(false)}
+                class="text-zinc-400 hover:text-white p-1 rounded hover:bg-[#2C2C2E]"
+              >
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={addCustomItemToCart} class="space-y-3">
+              <div>
+                <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                  Item Description / Title <span class="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={customTitle}
+                  onInput={(e) =>
+                    setCustomTitle((e.target as HTMLInputElement).value)}
+                  placeholder="e.g. Tempered Glass Screen Protector"
+                  class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    Price (KES) <span class="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={customPrice}
+                    onInput={(e) =>
+                      setCustomPrice((e.target as HTMLInputElement).value)}
+                    placeholder="0.00"
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                    Quantity
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={customQuantity}
+                    onInput={(e) =>
+                      setCustomQuantity((e.target as HTMLInputElement).value)}
+                    class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
+                  SKU / Identifier (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={customSku}
+                  onInput={(e) =>
+                    setCustomSku((e.target as HTMLInputElement).value)}
+                  placeholder="CUSTOM"
+                  class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 pt-3 border-t border-[#2C2C2E]">
+                <button
+                  type="button"
+                  onClick={() => setShowCustomItemModal(false)}
+                  class="py-2.5 bg-[#2C2C2E] hover:bg-zinc-700 text-xs font-semibold rounded-lg text-zinc-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  class="py-2.5 bg-amber-600 hover:bg-amber-500 text-xs font-bold rounded-lg text-white transition flex items-center justify-center space-x-1 shadow"
+                >
+                  <Plus class="w-3.5 h-3.5" />
+                  <span>Add to Cart</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* MODAL 4: QUICK CUSTOMER REGISTRATION MODAL          */}
+      {/* ==================================================== */}
       {showCustomerModal && (
         <div class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div class="bg-[#1C1C1E] border border-[#3A3A3C] rounded-2xl p-5 max-w-md w-full shadow-2xl">
@@ -964,8 +2668,10 @@ export default function PosTerminal() {
                   <UserPlus class="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 class="text-sm font-bold text-white">Quick Add Customer</h3>
-                  <p class="text-[11px] text-zinc-400">Medusa v2 Registered Client (Auto-Selected)</p>
+                  <h3 class="text-sm font-bold text-white">Quick Add Client</h3>
+                  <p class="text-[11px] text-zinc-400">
+                    Medusa v2 Registered Client (Auto-Selected)
+                  </p>
                 </div>
               </div>
               <button
@@ -993,8 +2699,10 @@ export default function PosTerminal() {
                     required
                     value={customerForm.firstName}
                     onInput={(e) =>
-                      setCustomerForm({ ...customerForm, firstName: (e.target as HTMLInputElement).value })
-                    }
+                      setCustomerForm({
+                        ...customerForm,
+                        firstName: (e.target as HTMLInputElement).value,
+                      })}
                     placeholder="e.g. Alice"
                     class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                   />
@@ -1008,8 +2716,10 @@ export default function PosTerminal() {
                     required
                     value={customerForm.lastName}
                     onInput={(e) =>
-                      setCustomerForm({ ...customerForm, lastName: (e.target as HTMLInputElement).value })
-                    }
+                      setCustomerForm({
+                        ...customerForm,
+                        lastName: (e.target as HTMLInputElement).value,
+                      })}
                     placeholder="e.g. Wambui"
                     class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                   />
@@ -1025,8 +2735,10 @@ export default function PosTerminal() {
                   required
                   value={customerForm.phone}
                   onInput={(e) =>
-                    setCustomerForm({ ...customerForm, phone: (e.target as HTMLInputElement).value })
-                  }
+                    setCustomerForm({
+                      ...customerForm,
+                      phone: (e.target as HTMLInputElement).value,
+                    })}
                   placeholder="e.g. +254 700 112 233"
                   class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 font-mono"
                 />
@@ -1034,32 +2746,46 @@ export default function PosTerminal() {
 
               <div>
                 <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
-                  Email <span class="text-[10px] text-zinc-500 font-normal">(Optional - auto-generated fallback)</span>
+                  Email{" "}
+                  <span class="text-[10px] text-zinc-500 font-normal">
+                    (Optional - auto-generated fallback)
+                  </span>
                 </label>
                 <input
                   type="email"
                   value={customerForm.email}
                   onInput={(e) =>
-                    setCustomerForm({ ...customerForm, email: (e.target as HTMLInputElement).value })
-                  }
+                    setCustomerForm({
+                      ...customerForm,
+                      email: (e.target as HTMLInputElement).value,
+                    })}
                   placeholder="e.g. client@example.com (or leave empty)"
                   class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                 />
                 <p class="text-[10px] text-zinc-500 mt-1">
-                  If omitted, generates <span class="font-mono text-zinc-400">walkin_{"{phone}"}@pos.urbandevicecare.co.uk</span> for Medusa registered constraint.
+                  If omitted, generates{" "}
+                  <span class="font-mono text-zinc-400">
+                    walkin_{"{phone}"}@pos.urbandevicecare.co.uk
+                  </span>{" "}
+                  for Medusa registered constraint.
                 </p>
               </div>
 
               <div>
                 <label class="block text-[11px] font-semibold text-zinc-300 mb-1">
-                  Company Name <span class="text-[10px] text-zinc-500 font-normal">(Optional)</span>
+                  Company Name{" "}
+                  <span class="text-[10px] text-zinc-500 font-normal">
+                    (Optional)
+                  </span>
                 </label>
                 <input
                   type="text"
                   value={customerForm.companyName}
                   onInput={(e) =>
-                    setCustomerForm({ ...customerForm, companyName: (e.target as HTMLInputElement).value })
-                  }
+                    setCustomerForm({
+                      ...customerForm,
+                      companyName: (e.target as HTMLInputElement).value,
+                    })}
                   placeholder="e.g. Safari Tech Ltd"
                   class="w-full bg-[#2C2C2E] border border-[#3A3A3C] rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
                 />
@@ -1079,7 +2805,11 @@ export default function PosTerminal() {
                   class="py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-xs font-bold rounded-lg text-white transition flex items-center justify-center space-x-1.5 shadow"
                 >
                   <CheckCircle2 class="w-3.5 h-3.5" />
-                  <span>{isCreatingCustomer ? "Registering..." : "Register & Auto-Select"}</span>
+                  <span>
+                    {isCreatingCustomer
+                      ? "Registering..."
+                      : "Register & Auto-Select"}
+                  </span>
                 </button>
               </div>
             </form>

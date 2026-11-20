@@ -258,4 +258,94 @@ public class POSUnitTest {
         assertEquals("walkin_254799888777_2@pos.urbandevicecare.co.uk", secondCust.getEmail());
         assertTrue(secondCust.hasAccount());
     }
+
+    @Test
+    public void testZeroDummyRepairsAndIntakeCreation() {
+        // Assert initial store starts empty (Zero dummy data contract)
+        List<com.urbandevicecare.pos.model.RepairTicketRecord> repairs = new ArrayList<>();
+        assertTrue("Initial repair tickets list must be empty (zero dummy data)", repairs.isEmpty());
+
+        // Create a repair intake matching Medusa repair plugin 1-to-1
+        double estimate = 45000.0;
+        double deposit = 15000.0;
+        double balDue = Math.max(0, estimate - deposit);
+        String payStatus = deposit >= estimate && estimate > 0 ? "captured" : deposit > 0 ? "partially_paid" : "pending";
+
+        com.urbandevicecare.pos.model.RepairTicketRecord ticket = new com.urbandevicecare.pos.model.RepairTicketRecord(
+                "rep_intake_001",
+                "REP-88991",
+                "cus_01HQ79124XYZ",
+                "John Doe",
+                "+254 700 112 233",
+                "john.doe@example.com",
+                "Dan M.",
+                "usr_02TECH_DAN",
+                "Apple",
+                "MacBook Pro 16\" (A2485)",
+                "Apple MacBook Pro 16\" (A2485)",
+                "C02G1234MD6R",
+                "356789012345678",
+                "Minor scratch on bezel",
+                "received",
+                "Liquid spill on top case, trackpad unresponsive",
+                "MagSafe 3 Cable, 140W Adapter",
+                "1234",
+                estimate,
+                deposit,
+                balDue,
+                payStatus,
+                true,
+                true,
+                "2026-11-20T08:00:00Z"
+        );
+
+        repairs.add(0, ticket);
+        assertEquals(1, repairs.size());
+        assertEquals("REP-88991", ticket.getTicketNumber());
+        assertEquals("Apple", ticket.getBrand());
+        assertEquals("MacBook Pro 16\" (A2485)", ticket.getModelName());
+        assertEquals("356789012345678", ticket.getImei());
+        assertEquals("Minor scratch on bezel", ticket.getCondition());
+        assertEquals("Dan M.", ticket.getTechnicianName());
+        assertEquals("partially_paid", ticket.getPaymentStatus());
+        assertEquals(30000.0, ticket.getBalanceDue(), 0.001);
+        assertTrue(ticket.isTermsAccepted());
+        assertTrue(ticket.isDataWipedConsent());
+    }
+
+    @Test
+    public void testCustomNonCatalogItemAddition() {
+        ProductPart customPart = new ProductPart(
+                "custom_123",
+                "Screen Protector Installation",
+                "Screen Protector Installation",
+                "SP-FIT-01",
+                "SP-FIT-01",
+                1500.0,
+                999,
+                true
+        );
+
+        assertTrue("Item must be flagged as custom", customPart.isCustom());
+        assertEquals(1500.0, customPart.getPrice(), 0.001);
+
+        CartItem item = new CartItem(customPart, 2);
+        assertEquals(3000.0, item.getLineTotal(), 0.001);
+    }
+
+    @Test
+    public void testDefaultCustomerFallbackToCashier() {
+        Cashier cashier = new Cashier("usr_01KRV9NELLY", "Nelly K.", "nelly@urbandevicecare.co.uk", "Admin");
+        POSCustomer activeCust = null; // Unselected customer
+
+        // Emulate completeSaleAndPrint fallback logic
+        String effectiveName = (activeCust != null) ? activeCust.getFullName() : cashier.getName();
+        String effectivePhone = (activeCust != null) ? activeCust.getPhone() : "+254 700 000 000";
+        String effectiveCompany = (activeCust != null) ? activeCust.getCompanyName() : "Staff Account (" + cashier.getRole() + ")";
+
+        assertEquals("Nelly K.", effectiveName);
+        assertEquals("+254 700 000 000", effectivePhone);
+        assertEquals("Staff Account (Admin)", effectiveCompany);
+    }
 }
+

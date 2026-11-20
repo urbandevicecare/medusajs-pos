@@ -41,10 +41,20 @@
         </LinearLayout>
 
         <Button
+            android:id="@+id/btn_repairs_nav"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Repairs (3)"
+            android:textSize="11sp"
+            android:backgroundTint="@color/pos_accent"
+            android:textColor="#FFFFFF"
+            android:layout_marginEnd="6dp" />
+
+        <Button
             android:id="@+id/btn_switch_cashier"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
-            android:text="Switch PIN"
+            android:text="Staff Login"
             android:textSize="11sp"
             android:backgroundTint="@color/pos_surface_variant"
             android:textColor="@color/pos_text_primary" />
@@ -158,6 +168,16 @@
             android:textColor="#FFFFFF" />
     </LinearLayout>
 
+    <TextView
+        android:id="@+id/tv_default_customer_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Default Client: Nelly K. (Staff Account)"
+        android:textColor="@color/pos_accent"
+        android:textSize="10sp"
+        android:layout_marginTop="-4dp"
+        android:layout_marginBottom="6dp" />
+
     <!-- Scan & Search Bar -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -198,6 +218,16 @@
             android:layout_marginStart="4dp"
             android:backgroundTint="@color/pos_surface_variant"
             android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btn_custom_item"
+            android:layout_width="wrap_content"
+            android:layout_height="42dp"
+            android:text="+ Custom"
+            android:textSize="11sp"
+            android:layout_marginStart="4dp"
+            android:backgroundTint="@color/pos_surface_variant"
+            android:textColor="@color/pos_accent" />
     </LinearLayout>
 
     <!-- Main Workspace (Catalog on left/top, Cart on right/bottom) -->

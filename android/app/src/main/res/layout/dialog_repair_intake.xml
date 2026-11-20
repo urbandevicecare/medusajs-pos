@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/pos_surface"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Book Workshop Repair Ticket"
+            android:textColor="@color/pos_text_primary"
+            android:textStyle="bold"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Connected to Medusa Repair Module (Defaults to staff client if unselected):"
+            android:textColor="@color/pos_text_secondary"
+            android:textSize="10sp"
+            android:layout_marginTop="2dp"
+            android:layout_marginBottom="10dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="CUSTOMER"
+            android:textColor="@color/pos_accent"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="2dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="6dp">
+
+            <EditText
+                android:id="@+id/et_intake_cust_name"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:hint="Client Name *"
+                android:textColorHint="@color/pos_text_muted"
+                android:textColor="@color/pos_text_primary"
+                android:background="@color/pos_surface_variant"
+                android:paddingHorizontal="8dp"
+                android:textSize="11sp"
+                android:layout_marginEnd="4dp" />
+
+            <EditText
+                android:id="@+id/et_intake_cust_phone"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:hint="Phone (+254...)"
+                android:textColorHint="@color/pos_text_muted"
+                android:textColor="@color/pos_text_primary"
+                android:background="@color/pos_surface_variant"
+                android:paddingHorizontal="8dp"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="DEVICE DETAILS"
+            android:textColor="@color/pos_accent"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="2dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="6dp">
+
+            <EditText
+                android:id="@+id/et_intake_brand"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:text="Apple"
+                android:hint="Brand"
+                android:textColorHint="@color/pos_text_muted"
+                android:textColor="@color/pos_text_primary"
+                android:background="@color/pos_surface_variant"
+                android:paddingHorizontal="8dp"
+                android:textSize="11sp"
+                android:layout_marginEnd="4dp" />
+
+            <EditText
+                android:id="@+id/et_intake_model"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="2"
+                android:hint="Model (e.g. MacBook Pro 16 A2485) *"
+                android:textColorHint="@color/pos_text_muted"
+                android:textColor="@color/pos_text_primary"
+                android:background="@color/pos_surface_variant"
+                android:paddingHorizontal="8dp"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="6dp">
+
+            <EditText
+                android:id="@+id/et_intake_serial"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:hint="Serial / IMEI"
+                android:textColorHint="@color/pos_text_muted"
+                android:textColor="@color/pos_text_primary"
+                android:background="@color/pos_surface_variant"
+                android:paddingHorizontal="8dp"
+                android:textSize="11sp"
+                android:layout_marginEnd="4dp" />
+
+            <EditText
+                android:id="@+id/et_intake_passcode"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:hint="Passcode / PIN"
+                android:textColorHint="@color/pos_text_muted"
+                android:textColor="@color/pos_text_primary"
+                android:background="@color/pos_surface_variant"
+                android:paddingHorizontal="8dp"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="FAULT &amp; ACCESSORIES"
+            android:textColor="@color/pos_accent"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="2dp" />
+
+        <EditText
+            android:id="@+id/et_intake_issue"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="Fault Description (symptoms, damages) *"
+            android:textColorHint="@color/pos_text_muted"
+            android:textColor="@color/pos_text_primary"
+            android:background="@color/pos_surface_variant"
+            android:paddingHorizontal="8dp"
+            android:textSize="11sp"
+            android:inputType="textMultiLine"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/et_intake_accessories"
+            android:layout_width="match_parent"
+            android:layout_height="38dp"
+            android:hint="Accessories Left (e.g. Charger, Case, Sleeve)"
+            android:textColorHint="@color/pos_text_muted"
+            android:textColor="@color/pos_text_primary"
+            android:background="@color/pos_surface_variant"
+            android:paddingHorizontal="8dp"
+            android:textSize="11sp"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="ESTIMATE &amp; DEPOSIT"
+            android:textColor="@color/pos_accent"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="2dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/et_intake_estimate"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:hint="Total Estimate (KES)"
+                android:textColorHint="@color/pos_text_muted"
+                android:textColor="@color/pos_text_primary"
+                android:background="@color/pos_surface_variant"
+                android:paddingHorizontal="8dp"
+                android:textSize="11sp"
+                android:inputType="numberDecimal"
+                android:layout_marginEnd="4dp" />
+
+            <EditText
+                android:id="@+id/et_intake_deposit"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_weight="1"
+                android:hint="Deposit Paid (KES)"
+                android:textColorHint="@color/pos_text_muted"
+                android:textColor="@color/pos_text_primary"
+                android:background="@color/pos_surface_variant"
+                android:paddingHorizontal="8dp"
+                android:textSize="11sp"
+                android:inputType="numberDecimal" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

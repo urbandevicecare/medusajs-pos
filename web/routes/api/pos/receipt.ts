@@ -1,4 +1,7 @@
-import { ThermalPrinterService, ThermalReceiptData } from "../../../services/thermal.ts";
+import {
+  ThermalPrinterService,
+  type ThermalReceiptData,
+} from "../../../services/thermal.ts";
 
 export async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -54,13 +57,25 @@ export async function handler(req: Request): Promise<Response> {
   <hr>
   <div class="flex bold"><span>ITEM</span><span>TOTAL</span></div>
   <hr>
-  ${sampleReceipt.items
-    .map((i) => `<div class="flex"><span>${i.quantity}x ${i.title}</span><span>KES ${i.total.toFixed(2)}</span></div>`)
-    .join("")}
+  ${
+      sampleReceipt.items
+        .map((i) =>
+          `<div class="flex"><span>${i.quantity}x ${i.title}</span><span>KES ${
+            i.total.toFixed(2)
+          }</span></div>`
+        )
+        .join("")
+    }
   <hr>
-  <div class="flex"><span>SUBTOTAL:</span><span>KES ${sampleReceipt.subtotal.toFixed(2)}</span></div>
-  <div class="flex"><span>VAT (16%):</span><span>KES ${sampleReceipt.tax.toFixed(2)}</span></div>
-  <div class="flex bold" style="font-size: 14px;"><span>TOTAL:</span><span>KES ${sampleReceipt.grandTotal.toFixed(2)}</span></div>
+  <div class="flex"><span>SUBTOTAL:</span><span>KES ${
+      sampleReceipt.subtotal.toFixed(2)
+    }</span></div>
+  <div class="flex"><span>VAT (16%):</span><span>KES ${
+      sampleReceipt.tax.toFixed(2)
+    }</span></div>
+  <div class="flex bold" style="font-size: 14px;"><span>TOTAL:</span><span>KES ${
+      sampleReceipt.grandTotal.toFixed(2)
+    }</span></div>
   <hr>
   <div class="flex"><span>Cashier:</span><span>${sampleReceipt.cashierName}</span></div>
   <div class="flex"><span>Terminal:</span><span>${sampleReceipt.terminalChannel}</span></div>
@@ -78,7 +93,8 @@ export async function handler(req: Request): Promise<Response> {
   return new Response(binary as any, {
     headers: {
       "Content-Type": "application/octet-stream",
-      "Content-Disposition": `attachment; filename="receipt_${orderNumber}.bin"`,
+      "Content-Disposition":
+        `attachment; filename="receipt_${orderNumber}.bin"`,
     },
   });
 }

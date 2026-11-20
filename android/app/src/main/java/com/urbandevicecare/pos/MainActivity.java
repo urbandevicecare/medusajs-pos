@@ -45,9 +45,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private Cashier activeCashier;
+    private final List<Cashier> staffList = new ArrayList<>();
+    private String activeAuthToken = "tok_staff_admin_init";
     private final List<ProductPart> catalog = new ArrayList<>();
     private final List<CartItem> cart = new ArrayList<>();
-    private final Map<String, Cashier> pinStore = new HashMap<>();
+    private final List<com.urbandevicecare.pos.model.RepairTicketRecord> repairsList = new ArrayList<>();
     private POSCustomer activeCustomer = null;
     private final List<POSCustomer> customerList = new ArrayList<>();
 
@@ -65,6 +67,8 @@ public class MainActivity extends AppCompatActivity {
     private EditText etTenderInput;
     private TextView tvChangeDue;
     private TextView tvStatusNotice;
+    private Button btnRepairsNav;
+    private Button btnCustomItem;
 
     // Customer UI
     private LinearLayout layoutSelectedCustomer;
@@ -72,6 +76,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvCustomerName;
     private TextView tvCustomerDetails;
     private EditText etCustomerSearch;
+    private TextView tvDefaultCustomerLabel;
 
     // Laser gun wedge interceptor
     private final StringBuilder wedgeBuffer = new StringBuilder();
@@ -93,20 +98,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initData() {
-        // Staff accounts for auditing
-        Cashier cashierNelly = new Cashier("usr_01KRV9NELLY", "Nelly K.", "nelly@urbandevicecare.co.uk");
-        Cashier cashierDan = new Cashier("usr_02TECH_DAN", "Dan M.", "dan@urbandevicecare.co.uk");
-        Cashier cashierJames = new Cashier("usr_03TECH_JAMES", "James O.", "tech@urbandevicecare.co.uk");
+        // Staff accounts for auditing (Zero PIN requirement)
+        Cashier cashierNelly = new Cashier("usr_01KRV9NELLY", "Nelly K.", "nelly@urbandevicecare.co.uk", "Admin");
+        Cashier cashierDan = new Cashier("usr_02TECH_DAN", "Dan M.", "dan@urbandevicecare.co.uk", "Repair Technician");
+        Cashier cashierJames = new Cashier("usr_03TECH_JAMES", "James O.", "tech@urbandevicecare.co.uk", "Cashier");
 
-        pinStore.put("1234", cashierNelly);
-        pinStore.put("5555", cashierDan);
-        pinStore.put("9876", cashierJames);
+        staffList.add(cashierNelly);
+        staffList.add(cashierDan);
+        staffList.add(cashierJames);
 
         activeCashier = cashierNelly;
 
         // Customer database seeded with registered Medusa clients
         customerList.add(new POSCustomer("cus_01HQ79124XYZ", "John", "Doe", "john.doe@example.com", "+254 700 112 233", "Nairobi Tech Ltd", true));
         customerList.add(new POSCustomer("cus_02HQ79124ABC", "Jane", "Smith", "jane@company.co.ke", "+254 711 445 566", "Alpha Corp", true));
+
+        // Workshop repairs list starts empty (Zero dummy data, connected to Medusa repair plugin)
+        repairsList.clear();
 
         // Workshop parts catalog
         catalog.add(new ProductPart("var_kb_a2681", "Keyboard UK Layout", "MacBook Air M2 13\" (A2681) Keyboard", "NP04011448", "NP04011448", 6500.0, 15));
@@ -128,6 +136,8 @@ public class MainActivity extends AppCompatActivity {
         etTenderInput = findViewById(R.id.et_tender_input);
         tvChangeDue = findViewById(R.id.tv_change_due);
         tvStatusNotice = findViewById(R.id.tv_status_notice);
+        btnRepairsNav = findViewById(R.id.btn_repairs_nav);
+        btnCustomItem = findViewById(R.id.btn_custom_item);
 
         // Customer HUD and search bar bindings
         layoutSelectedCustomer = findViewById(R.id.layout_selected_customer);
@@ -135,6 +145,16 @@ public class MainActivity extends AppCompatActivity {
         tvCustomerName = findViewById(R.id.tv_customer_name);
         tvCustomerDetails = findViewById(R.id.tv_customer_details);
         etCustomerSearch = findViewById(R.id.et_customer_search);
+        tvDefaultCustomerLabel = findViewById(R.id.tv_default_customer_label);
+
+        if (btnRepairsNav != null) {
+            btnRepairsNav.setText("Repairs (" + repairsList.size() + ")");
+            btnRepairsNav.setOnClickListener(v -> showRepairsListDialog());
+        }
+
+        if (btnCustomItem != null) {
+            btnCustomItem.setOnClickListener(v -> showAddCustomItemDialog());
+        }
 
         findViewById(R.id.btn_unlink_customer).setOnClickListener(v -> unlinkCustomer());
 
@@ -160,7 +180,7 @@ public class MainActivity extends AppCompatActivity {
 
         updateCustomerUI();
 
-        findViewById(R.id.btn_switch_cashier).setOnClickListener(v -> showPinSwitchDialog());
+        findViewById(R.id.btn_switch_cashier).setOnClickListener(v -> showStaffLoginDialog());
 
         findViewById(R.id.btn_scan_camera).setOnClickListener(v -> {
             Intent intent = new Intent(this, CameraScannerActivity.class);
@@ -369,26 +389,445 @@ public class MainActivity extends AppCompatActivity {
         updateChangeDue();
     }
 
-    private void showPinSwitchDialog() {
+    public void showStaffLoginDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_pin, null);
-        EditText etPin = dialogView.findViewById(R.id.et_pin_code);
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_login, null);
+        builder.setView(dialogView);
+        AlertDialog dialog = builder.create();
+
+        Button btnNelly = dialogView.findViewById(R.id.btn_staff_nelly);
+        Button btnDan = dialogView.findViewById(R.id.btn_staff_dan);
+        Button btnJames = dialogView.findViewById(R.id.btn_staff_james);
+        EditText etEmail = dialogView.findViewById(R.id.et_login_email);
+        EditText etPassword = dialogView.findViewById(R.id.et_login_password);
+
+        if (btnNelly != null) {
+            btnNelly.setOnClickListener(v -> selectStaffPreset("usr_01KRV9NELLY", dialog));
+        }
+        if (btnDan != null) {
+            btnDan.setOnClickListener(v -> selectStaffPreset("usr_02TECH_DAN", dialog));
+        }
+        if (btnJames != null) {
+            btnJames.setOnClickListener(v -> selectStaffPreset("usr_03TECH_JAMES", dialog));
+        }
+
+        builder.setPositiveButton("Login", (d, which) -> {
+            String email = etEmail != null ? etEmail.getText().toString().trim() : "";
+            if (email.isEmpty()) {
+                Toast.makeText(this, "Enter staff email", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Cashier matched = null;
+            for (Cashier c : staffList) {
+                if (c.getEmail().equalsIgnoreCase(email)) {
+                    matched = c;
+                    break;
+                }
+            }
+            if (matched != null) {
+                activeCashier = matched;
+            } else {
+                String namePart = email.contains("@") ? email.substring(0, email.indexOf("@")) : email;
+                activeCashier = new Cashier("usr_" + System.currentTimeMillis(), namePart, email, "Staff Admin");
+                staffList.add(activeCashier);
+            }
+            activeAuthToken = "tok_medusa_" + System.currentTimeMillis();
+            tvCashierName.setText("Cashier: " + activeCashier.getName());
+            tvStatusNotice.setText("✔ Authenticated " + activeCashier.getName() + " (" + activeCashier.getRole() + ")");
+            Toast.makeText(this, "Logged in: " + activeCashier.getName(), Toast.LENGTH_SHORT).show();
+        });
+        builder.setNegativeButton("Cancel", null);
+
+        dialog.show();
+    }
+
+    private void selectStaffPreset(String staffId, AlertDialog dialog) {
+        for (Cashier c : staffList) {
+            if (c.getId().equalsIgnoreCase(staffId)) {
+                activeCashier = c;
+                activeAuthToken = "tok_" + c.getId().toLowerCase(Locale.ROOT);
+                tvCashierName.setText("Cashier: " + activeCashier.getName());
+                tvStatusNotice.setText("✔ Cashier switched to " + activeCashier.getName() + " (" + activeCashier.getRole() + ")");
+                Toast.makeText(this, "Welcome " + activeCashier.getName(), Toast.LENGTH_SHORT).show();
+                if (dialog != null) dialog.dismiss();
+                return;
+            }
+        }
+    }
+
+    public void showAddCustomItemDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_custom_item, null);
+
+        EditText etTitle = dialogView.findViewById(R.id.et_custom_title);
+        EditText etPrice = dialogView.findViewById(R.id.et_custom_price);
+        EditText etQty = dialogView.findViewById(R.id.et_custom_qty);
+        EditText etSku = dialogView.findViewById(R.id.et_custom_sku);
 
         builder.setView(dialogView);
-        builder.setPositiveButton("Verify", (dialog, which) -> {
-            String pin = etPin.getText().toString().trim();
-            Cashier nextCashier = pinStore.get(pin);
-            if (nextCashier != null) {
-                activeCashier = nextCashier;
-                tvCashierName.setText("Cashier: " + activeCashier.getName());
-                tvStatusNotice.setText("✔ Cashier switched to " + activeCashier.getName());
-                Toast.makeText(this, "Welcome " + activeCashier.getName(), Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "Invalid PIN", Toast.LENGTH_SHORT).show();
+        builder.setPositiveButton("Add to Cart", (dialog, which) -> {
+            String title = etTitle.getText().toString().trim();
+            String priceStr = etPrice.getText().toString().trim();
+            String qtyStr = etQty.getText().toString().trim();
+            String sku = etSku != null ? etSku.getText().toString().trim() : "";
+
+            if (title.isEmpty()) {
+                Toast.makeText(this, "Item title is required", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            double price;
+            try {
+                price = Double.parseDouble(priceStr);
+                if (price <= 0) throw new IllegalArgumentException();
+            } catch (Exception e) {
+                Toast.makeText(this, "Enter valid positive price", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            int qty = 1;
+            try {
+                qty = Integer.parseInt(qtyStr);
+                if (qty <= 0) qty = 1;
+            } catch (Exception ignored) {}
+
+            addCustomItem(title, price, qty, sku.isEmpty() ? "CUSTOM" : sku);
+        });
+        builder.setNegativeButton("Cancel", null);
+        builder.show();
+    }
+
+    public void addCustomItem(String title, double price, int quantity, String sku) {
+        String id = "custom_" + System.currentTimeMillis();
+        ProductPart customPart = new ProductPart(id, title, title, sku, sku, price, 999, true);
+        for (CartItem item : cart) {
+            if (item.getPart().getTitle().equalsIgnoreCase(title) && item.getPart().getPrice() == price) {
+                for (int i = 0; i < quantity; i++) item.incrementQuantity();
+                renderCart();
+                updateTotals();
+                tvStatusNotice.setText("✔ Incremented custom item: " + title);
+                return;
+            }
+        }
+        cart.add(new CartItem(customPart, quantity));
+        renderCart();
+        updateTotals();
+        tvStatusNotice.setText("✔ Added custom item: " + title);
+        Toast.makeText(this, "Added custom item to cart", Toast.LENGTH_SHORT).show();
+    }
+
+    public void showRepairsListDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_repairs_list, null);
+        builder.setView(dialogView);
+        AlertDialog dialog = builder.create();
+
+        Button btnBookNew = dialogView.findViewById(R.id.btn_repairs_dialog_book_new);
+        EditText etSearch = dialogView.findViewById(R.id.et_repairs_search);
+        LinearLayout layoutItems = dialogView.findViewById(R.id.layout_repairs_items_container);
+
+        if (btnBookNew != null) {
+            btnBookNew.setOnClickListener(v -> {
+                dialog.dismiss();
+                showRepairIntakeDialog();
+            });
+        }
+
+        renderRepairsList(layoutItems, dialog, "");
+
+        if (etSearch != null) {
+            etSearch.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+                @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                    renderRepairsList(layoutItems, dialog, s.toString().trim());
+                }
+                @Override public void afterTextChanged(Editable s) {}
+            });
+        }
+
+        dialog.show();
+    }
+
+    private void renderRepairsList(LinearLayout container, AlertDialog dialog, String query) {
+        if (container == null) return;
+        container.removeAllViews();
+
+        List<com.urbandevicecare.pos.model.RepairTicketRecord> filtered = new ArrayList<>();
+        String q = query.toLowerCase(Locale.ROOT);
+        for (com.urbandevicecare.pos.model.RepairTicketRecord t : repairsList) {
+            if (q.isEmpty() ||
+                t.getTicketNumber().toLowerCase(Locale.ROOT).contains(q) ||
+                (t.getCustomerName() != null && t.getCustomerName().toLowerCase(Locale.ROOT).contains(q)) ||
+                (t.getDeviceName() != null && t.getDeviceName().toLowerCase(Locale.ROOT).contains(q)) ||
+                (t.getStatus() != null && t.getStatus().toLowerCase(Locale.ROOT).contains(q))) {
+                filtered.add(t);
+            }
+        }
+
+        if (filtered.isEmpty()) {
+            TextView emptyTv = new TextView(this);
+            emptyTv.setText(repairsList.isEmpty() ? "No repair tickets found. Zero dummy data." : "No matching repair tickets.");
+            emptyTv.setTextColor(getResources().getColor(R.color.pos_text_muted));
+            emptyTv.setTextSize(12f);
+            emptyTv.setPadding(16, 24, 16, 24);
+            container.addView(emptyTv);
+            return;
+        }
+
+        for (com.urbandevicecare.pos.model.RepairTicketRecord ticket : filtered) {
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setBackgroundColor(getResources().getColor(R.color.pos_surface_variant));
+            card.setPadding(12, 10, 12, 10);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = 8;
+            card.setLayoutParams(lp);
+
+            // Row 1: Ticket # and Status
+            LinearLayout r1 = new LinearLayout(this);
+            r1.setOrientation(LinearLayout.HORIZONTAL);
+            TextView tvNum = new TextView(this);
+            tvNum.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+            tvNum.setText(ticket.getTicketNumber() + " • " + (ticket.getDeviceName() != null ? ticket.getDeviceName() : "Device"));
+            tvNum.setTextColor(getResources().getColor(R.color.pos_text_primary));
+            tvNum.setTextSize(12f);
+            tvNum.setTypeface(null, android.graphics.Typeface.BOLD);
+
+            TextView tvStatus = new TextView(this);
+            tvStatus.setText(ticket.getStatus().toUpperCase(Locale.ROOT));
+            tvStatus.setTextColor(getResources().getColor(R.color.pos_accent));
+            tvStatus.setTextSize(10f);
+            tvStatus.setTypeface(null, android.graphics.Typeface.BOLD);
+            r1.addView(tvNum);
+            r1.addView(tvStatus);
+            card.addView(r1);
+
+            // Row 2: Customer & Balance
+            TextView tvSub = new TextView(this);
+            String cust = ticket.getCustomerName() != null ? ticket.getCustomerName() : "Walk-in";
+            String balText = String.format(Locale.US, "Client: %s • Balance Due: KES %.2f (%s)",
+                    cust, ticket.getBalanceDue(), ticket.getPaymentStatus());
+            tvSub.setText(balText);
+            tvSub.setTextColor(getResources().getColor(R.color.pos_text_secondary));
+            tvSub.setTextSize(10f);
+            tvSub.setPadding(0, 4, 0, 6);
+            card.addView(tvSub);
+
+            // Row 3: Action Buttons
+            LinearLayout r3 = new LinearLayout(this);
+            r3.setOrientation(LinearLayout.HORIZONTAL);
+
+            if (ticket.getBalanceDue() > 0) {
+                Button btnTender = new Button(this);
+                btnTender.setText("Tender Balance");
+                btnTender.setTextSize(10f);
+                btnTender.setLayoutParams(new LinearLayout.LayoutParams(0, 80, 1.0f));
+                btnTender.setOnClickListener(v -> {
+                    if (dialog != null) dialog.dismiss();
+                    tenderRepairBalance(ticket);
+                });
+                r3.addView(btnTender);
+            }
+
+            Button btnStatus = new Button(this);
+            btnStatus.setText("Update Status");
+            btnStatus.setTextSize(10f);
+            btnStatus.setLayoutParams(new LinearLayout.LayoutParams(0, 80, 1.0f));
+            btnStatus.setOnClickListener(v -> showUpdateTicketStatusDialog(ticket, container, dialog, query));
+            r3.addView(btnStatus);
+
+            card.addView(r3);
+            container.addView(card);
+        }
+    }
+
+    private void showUpdateTicketStatusDialog(com.urbandevicecare.pos.model.RepairTicketRecord ticket, LinearLayout container, AlertDialog parentDialog, String query) {
+        String[] statuses = {
+            "pending_dropoff", "received", "diagnosing", "awaiting_approval",
+            "repairing", "ready", "completed", "collected", "cancelled", "refunded"
+        };
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Update Status: " + ticket.getTicketNumber());
+        builder.setItems(statuses, (dialog, which) -> {
+            String newStatus = statuses[which];
+            int idx = repairsList.indexOf(ticket);
+            if (idx >= 0) {
+                com.urbandevicecare.pos.model.RepairTicketRecord updated = new com.urbandevicecare.pos.model.RepairTicketRecord(
+                    ticket.getId(), ticket.getTicketNumber(), ticket.getCustomerId(),
+                    ticket.getCustomerName(), ticket.getCustomerPhone(), ticket.getCustomerEmail(),
+                    ticket.getTechnicianName(), ticket.getTechnicianId(), ticket.getBrand(),
+                    ticket.getModelName(), ticket.getDeviceName(), ticket.getSerialNumber(),
+                    ticket.getImei(), ticket.getCondition(), newStatus,
+                    ticket.getIssueDescription(), ticket.getAccessories(), ticket.getPasscode(),
+                    ticket.getTotalEstimate(), ticket.getDepositAmount(), ticket.getBalanceDue(),
+                    ticket.getPaymentStatus(), ticket.isTermsAccepted(), ticket.isDataWipedConsent(),
+                    ticket.getCreatedAt()
+                );
+                repairsList.set(idx, updated);
+                tvStatusNotice.setText("✔ Status of " + ticket.getTicketNumber() + " updated to " + newStatus);
+                renderRepairsList(container, parentDialog, query);
+                Toast.makeText(this, "Status updated to " + newStatus, Toast.LENGTH_SHORT).show();
             }
         });
         builder.setNegativeButton("Cancel", null);
         builder.show();
+    }
+
+    public void showRepairIntakeDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_repair_intake, null);
+
+        EditText etCustName = dialogView.findViewById(R.id.et_intake_cust_name);
+        EditText etCustPhone = dialogView.findViewById(R.id.et_intake_cust_phone);
+        EditText etBrand = dialogView.findViewById(R.id.et_intake_brand);
+        EditText etModel = dialogView.findViewById(R.id.et_intake_model);
+        EditText etSerial = dialogView.findViewById(R.id.et_intake_serial);
+        EditText etPasscode = dialogView.findViewById(R.id.et_intake_passcode);
+        EditText etIssue = dialogView.findViewById(R.id.et_intake_issue);
+        EditText etAccessories = dialogView.findViewById(R.id.et_intake_accessories);
+        EditText etEstimate = dialogView.findViewById(R.id.et_intake_estimate);
+        EditText etDeposit = dialogView.findViewById(R.id.et_intake_deposit);
+
+        // Pre-fill active client or fallback to cashier
+        if (activeCustomer != null) {
+            etCustName.setText(activeCustomer.getFullName());
+            if (activeCustomer.getPhone() != null) etCustPhone.setText(activeCustomer.getPhone());
+        } else {
+            etCustName.setText(activeCashier.getName());
+            etCustPhone.setText("+254 700 000 000");
+        }
+
+        builder.setView(dialogView);
+        builder.setPositiveButton("Book Intake", (dialog, which) -> {
+            String custName = etCustName.getText().toString().trim();
+            if (custName.isEmpty()) {
+                custName = (activeCustomer != null) ? activeCustomer.getFullName() : activeCashier.getName();
+            }
+            String custPhone = etCustPhone.getText().toString().trim();
+            if (custPhone.isEmpty()) {
+                custPhone = (activeCustomer != null && activeCustomer.getPhone() != null) ? activeCustomer.getPhone() : "+254 700 000 000";
+            }
+            String custEmail = (activeCustomer != null && activeCustomer.getEmail() != null) ? activeCustomer.getEmail() : activeCashier.getEmail();
+
+            String brand = etBrand.getText().toString().trim();
+            String model = etModel.getText().toString().trim();
+            if (model.isEmpty()) {
+                Toast.makeText(this, "Device model is required", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String issue = etIssue.getText().toString().trim();
+            if (issue.isEmpty()) {
+                Toast.makeText(this, "Fault description is required", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String serial = etSerial.getText().toString().trim();
+            String passcode = etPasscode.getText().toString().trim();
+            String accessories = etAccessories.getText().toString().trim();
+
+            double estimate = 0;
+            try {
+                String eStr = etEstimate.getText().toString().trim();
+                if (!eStr.isEmpty()) estimate = Double.parseDouble(eStr);
+            } catch (Exception ignored) {}
+
+            double deposit = 0;
+            try {
+                String dStr = etDeposit.getText().toString().trim();
+                if (!dStr.isEmpty()) deposit = Double.parseDouble(dStr);
+            } catch (Exception ignored) {}
+
+            String ticketNum = "REP-" + (10000 + new Random().nextInt(90000));
+            double balDue = Math.max(0, estimate - deposit);
+            String payStatus = deposit >= estimate && estimate > 0 ? "captured" : deposit > 0 ? "partially_paid" : "pending";
+            String dName = (brand + " " + model).trim();
+
+            com.urbandevicecare.pos.model.RepairTicketRecord ticket = new com.urbandevicecare.pos.model.RepairTicketRecord(
+                "rep_" + System.currentTimeMillis(),
+                ticketNum,
+                activeCustomer != null ? activeCustomer.getId() : activeCashier.getId(),
+                custName,
+                custPhone,
+                custEmail,
+                activeCashier.getName(),
+                activeCashier.getId(),
+                brand,
+                model,
+                dName.isEmpty() ? "Generic Device" : dName,
+                serial,
+                serial, // imei
+                "Workshop Intake",
+                "received",
+                issue,
+                accessories,
+                passcode,
+                estimate,
+                deposit,
+                balDue,
+                payStatus,
+                true,
+                true,
+                "2026-11-20T08:00:00Z"
+            );
+
+            repairsList.add(0, ticket);
+            if (btnRepairsNav != null) {
+                btnRepairsNav.setText("Repairs (" + repairsList.size() + ")");
+            }
+            tvStatusNotice.setText("✔ Booked Repair #" + ticketNum + " for " + custName);
+            Toast.makeText(this, "Booked Repair #" + ticketNum + " for " + custName, Toast.LENGTH_LONG).show();
+        });
+        builder.setNegativeButton("Cancel", null);
+        builder.show();
+    }
+
+    public void tenderRepairBalance(com.urbandevicecare.pos.model.RepairTicketRecord ticket) {
+        if (ticket.getBalanceDue() <= 0) {
+            Toast.makeText(this, "Repair #" + ticket.getTicketNumber() + " has zero balance due", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        ProductPart repairPart = new ProductPart(
+            "rep_bal_" + ticket.getId(),
+            "Repair Balance #" + ticket.getTicketNumber() + " - " + (ticket.getDeviceName() != null ? ticket.getDeviceName() : "Device"),
+            "Repair Ticket #" + ticket.getTicketNumber(),
+            ticket.getTicketNumber(),
+            ticket.getTicketNumber(),
+            ticket.getBalanceDue(),
+            1,
+            true
+        );
+
+        if (activeCustomer == null && ticket.getCustomerName() != null) {
+            activeCustomer = new POSCustomer(
+                ticket.getCustomerId() != null ? ticket.getCustomerId() : "cus_repair_" + ticket.getId(),
+                ticket.getCustomerName(),
+                "",
+                ticket.getCustomerEmail() != null ? ticket.getCustomerEmail() : "repair_" + ticket.getTicketNumber().toLowerCase(Locale.ROOT) + "@pos.urbandevicecare.co.uk",
+                ticket.getCustomerPhone(),
+                "Repair Client",
+                true
+            );
+            updateCustomerUI();
+        }
+
+        addToCart(repairPart);
+        tvStatusNotice.setText("✔ Loaded Repair #" + ticket.getTicketNumber() + " balance (KES " + String.format(Locale.US, "%.2f", ticket.getBalanceDue()) + ") into cart.");
+        Toast.makeText(this, "Repair balance loaded into cart", Toast.LENGTH_SHORT).show();
+    }
+
+    public List<com.urbandevicecare.pos.model.RepairTicketRecord> getRepairsList() {
+        return repairsList;
+    }
+
+    public List<CartItem> getCart() {
+        return cart;
+    }
+
+    public Cashier getActiveCashier() {
+        return activeCashier;
+    }
+
+    public List<ProductPart> getCatalog() {
+        return catalog;
     }
 
     private void completeSaleAndPrint() {
@@ -405,6 +844,11 @@ public class MainActivity extends AppCompatActivity {
             tendered = getGrandTotal();
         }
 
+        // If no customer is explicitly selected, default to the logged in cashier user
+        String effectiveCustomerName = (activeCustomer != null) ? activeCustomer.getFullName() : activeCashier.getName();
+        String effectiveCustomerPhone = (activeCustomer != null) ? activeCustomer.getPhone() : "+254 700 000 000";
+        String effectiveCustomerCompany = (activeCustomer != null) ? activeCustomer.getCompanyName() : "Staff Counter (" + activeCashier.getRole() + ")";
+
         ReceiptData receipt = new ReceiptData(
                 "Urban Device Care",
                 orderNum,
@@ -418,15 +862,15 @@ public class MainActivity extends AppCompatActivity {
                 tendered,
                 getChangeDue(),
                 "https://track.urbandevicecare.co.uk/order/" + orderNum,
-                activeCustomer != null ? activeCustomer.getFullName() : null,
-                activeCustomer != null ? activeCustomer.getPhone() : null,
-                activeCustomer != null ? activeCustomer.getCompanyName() : null
+                effectiveCustomerName,
+                effectiveCustomerPhone,
+                effectiveCustomerCompany
         );
 
         // Native CS30 thermal printer dispatch
         boolean printSuccess = cs30Printer.printReceipt(receipt);
 
-        String custNotice = (activeCustomer != null) ? " for " + activeCustomer.getFullName() : "";
+        String custNotice = " for " + effectiveCustomerName;
         clearCart();
         unlinkCustomer();
         tvStatusNotice.setText("✔ Order " + orderNum + " completed" + custNotice + "! Printed: " + printSuccess);
