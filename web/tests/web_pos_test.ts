@@ -12,6 +12,7 @@ import { handler as posReceiptHandler } from "../routes/api/pos/receipt.ts";
 import { handler as posAuthHandler } from "../routes/api/pos/auth.ts";
 import { handler as posCustomersHandler } from "../routes/api/pos/customers.ts";
 import { handler as posRepairsHandler } from "../routes/api/pos/repairs.ts";
+import { handler as posProductsHandler } from "../routes/api/pos/products.ts";
 import { handler as legacyScanHandler } from "../routes/api/scan.ts";
 import { handler as legacyCheckoutHandler } from "../routes/api/checkout.ts";
 import { handler as legacyReceiptHandler } from "../routes/api/receipt.ts";
@@ -654,4 +655,40 @@ Deno.test("Custom Cart Line Item & Default customer fallback", async () => {
   assertEquals(order.items[0].is_custom, true);
   assertEquals(order.customer_id, "usr_01KRV9NELLY");
   assertEquals(order.metadata.cashier_id, "usr_01KRV9NELLY");
+});
+
+Deno.test("POS Products & Catalog: live search suggestions and infinite scroll pagination", async () => {
+  // 1. getCatalog pagination
+  const catalogPage1 = await service.getCatalog({
+    limit: 2,
+    offset: 0,
+    includeFallback: true,
+  });
+  assertExists(catalogPage1.products);
+  assertEquals(catalogPage1.limit, 2);
+  assertEquals(catalogPage1.offset, 0);
+
+  // 2. getCatalog keyword search (searching by item title / name)
+  const searchResult = await service.getCatalog({
+    q: "Keyboard",
+    limit: 10,
+    includeFallback: true,
+  });
+  assertExists(searchResult.products);
+  const found = searchResult.products.some((p) =>
+    p.title.toLowerCase().includes("keyboard")
+  );
+  assertEquals(found, true);
+
+  // 3. /api/pos/products API route invocation
+  const req = new Request(
+    "http://localhost:8000/api/pos/products?q=MacBook&limit=5&fallback=true",
+  );
+  const res = await posProductsHandler(req);
+  assertEquals(res.status, 200);
+  assertEquals(res.headers.get("content-type"), "application/json");
+  const data = await res.json();
+  assertExists(data.products);
+  assertEquals(typeof data.count, "number");
+  assertEquals(typeof data.has_more, "boolean");
 });
