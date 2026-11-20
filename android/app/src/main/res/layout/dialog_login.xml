@@ -21,68 +21,20 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Select your staff account or login with Medusa Admin credentials:"
+            android:text="Enter Medusa Admin credentials to start your till session:"
             android:textColor="@color/pos_text_secondary"
             android:textSize="11sp"
             android:layout_marginTop="2dp"
-            android:layout_marginBottom="10dp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="QUICK STAFF SELECT"
-            android:textColor="@color/pos_accent"
-            android:textSize="10sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="4dp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="12dp">
-
-            <Button
-                android:id="@+id/btn_staff_nelly"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1"
-                android:text="Nelly K.\nAdmin"
-                android:textSize="9sp"
-                android:backgroundTint="@color/pos_surface_variant"
-                android:textColor="@color/pos_text_primary"
-                android:layout_marginEnd="4dp" />
-
-            <Button
-                android:id="@+id/btn_staff_dan"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1"
-                android:text="Dan M.\nTech"
-                android:textSize="9sp"
-                android:backgroundTint="@color/pos_surface_variant"
-                android:textColor="@color/pos_text_primary"
-                android:layout_marginEnd="4dp" />
-
-            <Button
-                android:id="@+id/btn_staff_james"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1"
-                android:text="James O.\nCashier"
-                android:textSize="9sp"
-                android:backgroundTint="@color/pos_surface_variant"
-                android:textColor="@color/pos_text_primary" />
-        </LinearLayout>
+            android:layout_marginBottom="12dp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="MEDUSA ADMIN CREDENTIALS"
-            android:textColor="@color/pos_text_secondary"
+            android:textColor="@color/pos_accent"
             android:textSize="10sp"
             android:textStyle="bold"
-            android:layout_marginBottom="4dp" />
+            android:layout_marginBottom="6dp" />
 
         <EditText
             android:id="@+id/et_login_email"

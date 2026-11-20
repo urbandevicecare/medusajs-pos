@@ -1981,50 +1981,10 @@ public struct StaffLoginView: View {
                     Text("Urban Device Care POS")
                         .font(.system(size: 22, weight: .bold))
                 }
-                Text("Select your staff profile or enter Medusa Admin credentials to start your till session")
+                Text("Enter Medusa Admin credentials to start your till session")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
-            
-            // Quick Staff Profile Presets
-            VStack(spacing: 8) {
-                Text("QUICK STAFF SIGN IN").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
-                HStack(spacing: 12) {
-                    ForEach(viewModel.availableStaff) { staff in
-                        Button(action: {
-                            viewModel.loginWithStaffMember(staff)
-                        }) {
-                            VStack(spacing: 6) {
-                                Image(systemName: staff.role == "Admin" ? "crown.fill" : (staff.role == "Repair Technician" ? "wrench.and.screwdriver.fill" : "person.fill"))
-                                    .font(.system(size: 22))
-                                    .foregroundColor(staff.role == "Admin" ? .orange : (staff.role == "Repair Technician" ? .blue : .green))
-                                Text(staff.name)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(.primary)
-                                Text(staff.role)
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.secondary)
-                            }
-                            .frame(width: 100, height: 85)
-                            .background(Color.gray.opacity(0.08))
-                            .cornerRadius(8)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
-                    }
-                }
-            }
-            
-            HStack {
-                Rectangle().fill(Color.gray.opacity(0.2)).frame(height: 1)
-                Text("OR MEDUSA ADMIN LOGIN").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary.opacity(0.8))
-                Rectangle().fill(Color.gray.opacity(0.2)).frame(height: 1)
-            }
-            .frame(width: 320)
             
             // Medusa Credentials Login Form
             VStack(spacing: 10) {

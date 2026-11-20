@@ -392,26 +392,12 @@ public class MainActivity extends AppCompatActivity {
     public void showStaffLoginDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_login, null);
-        builder.setView(dialogView);
-        AlertDialog dialog = builder.create();
 
-        Button btnNelly = dialogView.findViewById(R.id.btn_staff_nelly);
-        Button btnDan = dialogView.findViewById(R.id.btn_staff_dan);
-        Button btnJames = dialogView.findViewById(R.id.btn_staff_james);
         EditText etEmail = dialogView.findViewById(R.id.et_login_email);
         EditText etPassword = dialogView.findViewById(R.id.et_login_password);
 
-        if (btnNelly != null) {
-            btnNelly.setOnClickListener(v -> selectStaffPreset("usr_01KRV9NELLY", dialog));
-        }
-        if (btnDan != null) {
-            btnDan.setOnClickListener(v -> selectStaffPreset("usr_02TECH_DAN", dialog));
-        }
-        if (btnJames != null) {
-            btnJames.setOnClickListener(v -> selectStaffPreset("usr_03TECH_JAMES", dialog));
-        }
-
-        builder.setPositiveButton("Login", (d, which) -> {
+        builder.setView(dialogView);
+        builder.setPositiveButton("Login", (dialog, which) -> {
             String email = etEmail != null ? etEmail.getText().toString().trim() : "";
             if (email.isEmpty()) {
                 Toast.makeText(this, "Enter staff email", Toast.LENGTH_SHORT).show();
@@ -437,22 +423,7 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Logged in: " + activeCashier.getName(), Toast.LENGTH_SHORT).show();
         });
         builder.setNegativeButton("Cancel", null);
-
-        dialog.show();
-    }
-
-    private void selectStaffPreset(String staffId, AlertDialog dialog) {
-        for (Cashier c : staffList) {
-            if (c.getId().equalsIgnoreCase(staffId)) {
-                activeCashier = c;
-                activeAuthToken = "tok_" + c.getId().toLowerCase(Locale.ROOT);
-                tvCashierName.setText("Cashier: " + activeCashier.getName());
-                tvStatusNotice.setText("✔ Cashier switched to " + activeCashier.getName() + " (" + activeCashier.getRole() + ")");
-                Toast.makeText(this, "Welcome " + activeCashier.getName(), Toast.LENGTH_SHORT).show();
-                if (dialog != null) dialog.dismiss();
-                return;
-            }
-        }
+        builder.show();
     }
 
     public void showAddCustomItemDialog() {

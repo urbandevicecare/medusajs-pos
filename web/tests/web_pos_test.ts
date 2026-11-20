@@ -557,9 +557,19 @@ Deno.test("Workshop Intake & Repairs Module (getRepairs & createRepairIntake)", 
   assertEquals(newIntake.status, "received");
 
   // 3. Update repair status & add note matching repair plugin
-  const statusUpdated = await service.updateRepairStatus(undefined, newIntake.id, "repairing", "Started screen replacement");
+  const statusUpdated = await service.updateRepairStatus(
+    undefined,
+    newIntake.id,
+    "repairing",
+    "Started screen replacement",
+  );
   assertEquals(statusUpdated, true);
-  const noteAdded = await service.addRepairNote(undefined, newIntake.id, "Disassembled device", false);
+  const noteAdded = await service.addRepairNote(
+    undefined,
+    newIntake.id,
+    "Disassembled device",
+    false,
+  );
   assertEquals(noteAdded, true);
 
   // 4. Filter by status
