@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/pos_surface"
+    android:padding="16dp">
+
+    <!-- Header with Safaricom branding -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📲 "
+            android:textSize="20sp" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="LIPA NA M-PESA ONLINE"
+                android:textColor="#00A344"
+                android:textStyle="bold"
+                android:textSize="14sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Direct STK Push Prompt to Customer Phone"
+                android:textColor="@color/pos_text_muted"
+                android:textSize="10sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Amount banner -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="@color/pos_surface_variant"
+        android:padding="10dp"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Total Payable:"
+            android:textColor="@color/pos_text_secondary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tv_stk_amount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="KES 0.00"
+            android:textColor="@color/pos_text_primary"
+            android:textStyle="bold"
+            android:textSize="15sp" />
+    </LinearLayout>
+
+    <!-- Phone input -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Customer Safaricom M-Pesa Phone Number *"
+        android:textColor="@color/pos_text_secondary"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <EditText
+        android:id="@+id/et_stk_phone"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:hint="2547XXXXXXXX or 07XXXXXXXX"
+        android:textColorHint="@color/pos_text_muted"
+        android:textColor="@color/pos_text_primary"
+        android:background="@color/pos_surface_variant"
+        android:paddingHorizontal="10dp"
+        android:textSize="13sp"
+        android:inputType="phone"
+        android:layout_marginBottom="10dp" />
+
+    <!-- Status & Polling Notice -->
+    <TextView
+        android:id="@+id/tv_stk_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Enter customer phone number and press Send."
+        android:textColor="@color/pos_text_secondary"
+        android:textSize="11sp"
+        android:gravity="center"
+        android:layout_marginBottom="6dp" />
+
+    <!-- Countdown & Ref HUD -->
+    <LinearLayout
+        android:id="@+id/layout_stk_countdown"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="gone"
+        android:layout_marginBottom="10dp">
+
+        <TextView
+            android:id="@+id/tv_stk_countdown"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="60s remaining"
+            android:textColor="#FFA500"
+            android:textStyle="bold"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/tv_stk_ref"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Ref: STK-POS-123456"
+            android:textColor="@color/pos_text_muted"
+            android:textSize="10sp"
+            android:layout_marginTop="2dp" />
+    </LinearLayout>
+
+    <!-- Action buttons -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_cancel_stk"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="Cancel"
+            android:textSize="11sp"
+            android:backgroundTint="@color/pos_surface_variant"
+            android:textColor="@color/pos_text_primary"
+            android:layout_marginEnd="6dp" />
+
+        <Button
+            android:id="@+id/btn_send_stk"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1.8"
+            android:text="Send STK Prompt"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:backgroundTint="#00A344"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+</LinearLayout>

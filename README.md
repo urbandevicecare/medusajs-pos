@@ -6,31 +6,37 @@ Built with **100% native platform code (zero headless browser / zero WebView blo
 
 ---
 
-## 📦 Release v2.2.0 Distribution Packages
+## 📦 Release v2.3.0 Distribution Packages
 
 Ready-to-use distribution packages are packaged in `dist/` and published to the GitHub Releases page:
 
 | Package | Archive File | Platform / Target | Footprint |
 | :--- | :--- | :--- | :--- |
-| **Medusa v2 POS Plugin** | `medusajs-pos-plugin-v2.2.0.zip` | Medusa v2 Backend / Node.js | **28 KB** |
-| **Fresh.js Web POS** | `medusajs-webpos-freshjs-v2.2.0.zip` | Deno / Fresh 2.x Storefront | **38 KB** |
-| **macOS Native POS** | `UrbanDevicePOS-macOS-v2.2.0.zip` | macOS 12+ (x86_64 / Apple Silicon) | **1.8 MB** (660 KB binary) |
-| **Android CS30 POS** | `UrbanDevicePOS-android-CS30-v2.2.0.zip` | Handheld Smart POS Model CS30 (Android 11) | **1.2 MB** (1.8 MB APK) |
+| **Medusa v2 POS Plugin** | `medusajs-pos-plugin-v2.3.0.zip` | Medusa v2 Backend / Node.js | **87 KB** |
+| **Fresh.js Web POS** | `medusajs-webpos-freshjs-v2.3.0.zip` | Deno / Fresh 2.x Storefront | **190 KB** |
+| **macOS Native POS** | `UrbanDevicePOS-macOS-v2.3.0.zip` | macOS 12+ (x86_64 / Apple Silicon) | **2.0 MB** (1.2 MB binary) |
+| **Android CS30 POS** | `UrbanDevicePOS-android-CS30-v2.3.0.zip` | Handheld Smart POS Model CS30 (Android 11) | **1.2 MB** (1.8 MB APK) |
 
-### Key What's New in v2.2.0:
-1. **Hardware-Backed Apple Keychain Security**:
-   - macOS: Storing API publishable keys and session tokens using Apple's native `Security.framework` (`kSecClassGenericPassword` with AES-256 GCM encryption). Zero plaintext keys stored on disk or in `UserDefaults`.
-2. **First-Startup Remote Server Setup**:
-   - First launch displays a setup sheet allowing staff to set or verify the remote Medusa server URL (`https://admin.urbandevicecare.co.uk`) with live latency testing and preset environments. Securely persisted in Keychain for subsequent launches.
-3. **Staff Authentication & Sales Attribution**:
-   - Supports 4-digit Staff PIN handover (Nelly K. Admin, Dan M. Repair Technician, Alex T. Cashier) and Medusa Admin email/password login.
-   - Automatically attributes staff identity (`staff_id`, `name`, `email`, `role`) to every sale, order, and repair.
-   - Counter "Lock Till" button allows staff to securely lock register between customer transactions.
-4. **Polite Offline State**:
-   - When network or remote server is unreachable, gracefully suppresses mock catalogs and displays a polite prompt instructing staff to check internet connection, with instant retry and server settings configuration.
-5. **UI & Layout Refinement**:
-   - Fixed top title cutoff ("Urban Device Care POS") and empty cart height constraint.
-   - Expanded window size to 920x620 with fixed title visibility.
+### Key What's New in v2.3.0 (Full 4-Platform Parity):
+1. **Automatic Price List Recalculation**:
+   - Active price lists (`/admin/price-lists?status=active`), customer group tiers (VIP 10% Off, Wholesale 20% Off, Corporate 15% Off), customer `discount_rate` override, and auto-repricing on customer select/unlink/switch/item add.
+   - Visual price badge: `🏷️ [PriceList] (was KES XXX)` in catalog and cart across Web, macOS, and Android.
+2. **Live Item Search Suggestions & Infinite Scroll Catalog**:
+   - Live item lookup with genuine stock and price suggestions as typing, with keyboard and touch selection.
+   - Parts and services catalog with live stock resolution.
+3. **Actual In-Stock Quantity Resolution**:
+   - True stock calculated from variants, inventory items, and location levels; badges `• X in stock` (green) or `• 0 in stock (Out of stock)` (red).
+   - Cart warning `(Exceeds stock!)` in bold red if cart quantity exceeds available stock. Zero fake fallback 10.
+4. **Optional 16% VAT Interactive Toggle**:
+   - Defaults to `false` (exempt). When off: VAT is `KES 0.00 (Exempt)` and total due equals subtotal. Reflected in thermal receipts and printed output.
+5. **Repair Tickets Tabular Rows Layout**:
+   - Tabular rows layout (not cards), columns: Ticket # & Date | Device & Issue | Client (`Apex Electronics (John Kamau)` / company name / customer name, never "Workshop Client") | Tech / Serial | Status | Payment | Balance Due | View button.
+   - Removed add to cart / tender buttons from list rows.
+6. **Repair Inspection Modal & STK Button**:
+   - View button opens inspection modal with client, device, and fault details.
+   - Footer features `Push M-Pesa STK` button, disabled if balance is 0 (`Push M-Pesa STK (Balance: KES 0.00 - Paid)`).
+7. **M-Pesa STK Push Express Checkout**:
+   - Interactive dialog/sheet with Safaricom M-Pesa green branding (`#00A344`), pre-filled customer phone number, 60s countdown timer, polling verification, and zero balance guard (disabled when balance <= 0).
 
 ---
 

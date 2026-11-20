@@ -132,7 +132,8 @@ public class CS30ThermalPrinter {
 
             out.write("--------------------------------\n".getBytes(StandardCharsets.UTF_8));
             out.write((formatTwoColumns("SUBTOTAL:", String.format("KES %.2f", data.getSubtotal()), 32) + "\n").getBytes(StandardCharsets.UTF_8));
-            out.write((formatTwoColumns("VAT (16%):", String.format("KES %.2f", data.getTax()), 32) + "\n").getBytes(StandardCharsets.UTF_8));
+            String vatStr = data.getTax() > 0 ? String.format("KES %.2f", data.getTax()) : "KES 0.00 (Exempt)";
+            out.write((formatTwoColumns("VAT (16%):", vatStr, 32) + "\n").getBytes(StandardCharsets.UTF_8));
 
             // Bold Grand Total
             out.write(new byte[]{0x1B, 0x45, 0x01});

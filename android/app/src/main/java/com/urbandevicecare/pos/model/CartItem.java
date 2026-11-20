@@ -5,10 +5,18 @@ import java.util.Objects;
 public class CartItem {
     private final ProductPart part;
     private int quantity;
+    private Double originalPrice;
+    private String appliedPriceList;
 
     public CartItem(ProductPart part, int quantity) {
+        this(part, quantity, part.getOriginalPrice(), part.getAppliedPriceList());
+    }
+
+    public CartItem(ProductPart part, int quantity, Double originalPrice, String appliedPriceList) {
         this.part = part;
         this.quantity = quantity;
+        this.originalPrice = originalPrice;
+        this.appliedPriceList = appliedPriceList;
     }
 
     public ProductPart getPart() { return part; }
@@ -16,6 +24,10 @@ public class CartItem {
     public void setQuantity(int quantity) { this.quantity = quantity; }
     public void incrementQuantity() { this.quantity++; }
     public void decrementQuantity() { this.quantity--; }
+    public Double getOriginalPrice() { return originalPrice != null ? originalPrice : part.getOriginalPrice(); }
+    public void setOriginalPrice(Double originalPrice) { this.originalPrice = originalPrice; }
+    public String getAppliedPriceList() { return appliedPriceList != null ? appliedPriceList : part.getAppliedPriceList(); }
+    public void setAppliedPriceList(String appliedPriceList) { this.appliedPriceList = appliedPriceList; }
     public double getLineTotal() { return part.getPrice() * quantity; }
     public String getFormattedLineTotal() { return String.format("KES %.2f", getLineTotal()); }
 

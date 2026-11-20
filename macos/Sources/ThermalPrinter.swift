@@ -100,7 +100,8 @@ public class NativeThermalPrinter {
         
         appendString(&bytes, "--------------------------------\n")
         appendString(&bytes, formatTwoColumns(left: "SUBTOTAL:", right: String(format: "KES %.2f", data.subtotal), width: 32) + "\n")
-        appendString(&bytes, formatTwoColumns(left: "VAT (16%):", right: String(format: "KES %.2f", data.tax), width: 32) + "\n")
+        let vatText = data.tax > 0 ? String(format: "KES %.2f", data.tax) : "KES 0.00 (Exempt)"
+        appendString(&bytes, formatTwoColumns(left: "VAT (16%):", right: vatText, width: 32) + "\n")
         
         // Bold Grand Total
         bytes.append(contentsOf: [0x1B, 0x45, 0x01])

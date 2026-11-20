@@ -54,6 +54,27 @@ public class POSViewModel: ObservableObject {
     @Published public var statusNotice: String = "Ready for barcode scan or SKU lookup."
     @Published public var isProcessing: Bool = false
     
+    // Optional 16% VAT toggle
+    @Published public var applyVat: Bool = false
+    
+    // Price Lists
+    @Published public var activePriceLists: [PriceListRule] = []
+    
+    // Live Search Suggestions
+    @Published public var itemSuggestions: [ProductPart] = []
+    @Published public var showItemSuggestions: Bool = false
+    
+    // M-Pesa STK Push Express Checkout
+    @Published public var showStkModal: Bool = false
+    @Published public var stkPhone: String = ""
+    @Published public var stkAmount: Double = 0.0
+    @Published public var stkTicketId: String? = nil
+    @Published public var stkStep: String = "input"
+    @Published public var stkNotice: String = ""
+    @Published public var stkCountdown: Int = 60
+    @Published public var stkReference: String = ""
+    private var stkTimer: Timer? = nil
+    
     // Tender state
     @Published public var tenderInputText: String = ""
     @Published public var selectedTenderType: String = "cash"
@@ -82,6 +103,8 @@ public class POSViewModel: ObservableObject {
         
         loadMockCatalog()
         loadMockCustomers()
+        loadMockPriceLists()
+        loadMockRepairs()
         
         if !hasConfigured {
             self.isFirstLaunchSetupOpen = true
@@ -96,7 +119,7 @@ public class POSViewModel: ObservableObject {
     }
     
     public var tax: Double {
-        (subtotal * 0.16 * 100).rounded() / 100
+        applyVat ? ((subtotal * 0.16 * 100).rounded() / 100) : 0.0
     }
     
     public var grandTotal: Double {
@@ -192,8 +215,45 @@ public class POSViewModel: ObservableObject {
         }.resume()
     }
     
+    nonisolated public static func resolveActualStock(from item: [String: Any]) -> Int {
+        if let qty = (item["inventory_quantity"] as? NSNumber)?.intValue {
+            return max(0, qty)
+        }
+        if let qty = (item["stock_quantity"] as? NSNumber)?.intValue {
+            return max(0, qty)
+        }
+        if let invItems = item["inventory_items"] as? [[String: Any]], !invItems.isEmpty {
+            var totalStock = 0
+            for itemLink in invItems {
+                let levels = (itemLink["location_levels"] as? [[String: Any]]) ??
+                             ((itemLink["inventory"] as? [String: Any])?["location_levels"] as? [[String: Any]]) ?? []
+                if !levels.isEmpty {
+                    for lvl in levels {
+                        let stocked = (lvl["stocked_quantity"] as? NSNumber)?.intValue ??
+                                      (lvl["available_quantity"] as? NSNumber)?.intValue ?? 0
+                        totalStock += stocked
+                    }
+                } else if let stocked = (itemLink["stocked_quantity"] as? NSNumber)?.intValue {
+                    totalStock += stocked
+                }
+            }
+            return max(0, totalStock)
+        }
+        if let levels = item["location_levels"] as? [[String: Any]], !levels.isEmpty {
+            let total = levels.reduce(0) { sum, lvl in
+                let qty = (lvl["stocked_quantity"] as? NSNumber)?.intValue ??
+                          (lvl["available_quantity"] as? NSNumber)?.intValue ?? 0
+                return sum + qty
+            }
+            return max(0, total)
+        }
+        return 0
+    }
+    
     public func fetchLiveCatalog() {
-        guard let url = URL(string: "\(serverBaseUrl)/store/products?limit=100&fields=*variants,*variants.calculated_price") else { return }
+        let fieldQuery = "*variants,*variants.options,*options,*options.values,+variants.inventory_quantity,+variants.manage_inventory,+variants.allow_backorder,*variants.inventory_items.*,*variants.inventory_items.inventory.location_levels.*,*variants.calculated_price"
+        guard let encodedFields = fieldQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(serverBaseUrl)/store/products?limit=100&fields=\(encodedFields)") else { return }
         var request = URLRequest(url: url)
         request.timeoutInterval = 5.0
         request.setValue(publishableApiKey, forHTTPHeaderField: "x-publishable-api-key")
@@ -222,13 +282,17 @@ public class POSViewModel: ObservableObject {
                             price = orig.doubleValue
                         }
                     }
+                    let stock = POSViewModel.resolveActualStock(from: v)
                     liveParts.append(ProductPart(
                         id: vId,
                         title: vTitle,
                         productTitle: pTitle,
                         sku: sku,
                         barcode: barcode,
-                        price: price
+                        price: price,
+                        inventoryQuantity: stock,
+                        isCustom: false,
+                        originalPrice: price
                     ))
                 }
             }
@@ -249,14 +313,34 @@ public class POSViewModel: ObservableObject {
         checkServerHealthAndSync()
     }
     
+    public func updateSearchSuggestions(query: String) {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else {
+            itemSuggestions = []
+            showItemSuggestions = false
+            return
+        }
+        
+        let matched = catalog.filter {
+            $0.title.lowercased().contains(q) ||
+            ($0.productTitle?.lowercased().contains(q) ?? false) ||
+            ($0.sku?.lowercased().contains(q) ?? false) ||
+            ($0.barcode?.lowercased().contains(q) ?? false)
+        }
+        itemSuggestions = Array(matched.prefix(8))
+        showItemSuggestions = !itemSuggestions.isEmpty
+    }
+    
     public func searchCatalog(query: String = "") {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if q.isEmpty {
             fetchLiveCatalog()
             return
         }
-        guard let encoded = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "\(serverBaseUrl)/store/products?q=\(encoded)&limit=50&fields=*variants,*variants.calculated_price") else { return }
+        let fieldQuery = "*variants,*variants.calculated_price,+variants.inventory_quantity,*variants.inventory_items.*,*variants.inventory_items.inventory.location_levels.*"
+        guard let encodedQ = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let encodedFields = fieldQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(serverBaseUrl)/store/products?q=\(encodedQ)&limit=50&fields=\(encodedFields)") else { return }
         var request = URLRequest(url: url)
         request.timeoutInterval = 4.0
         request.setValue(publishableApiKey, forHTTPHeaderField: "x-publishable-api-key")
@@ -280,13 +364,17 @@ public class POSViewModel: ObservableObject {
                        let amt = calcPrice["calculated_amount"] as? NSNumber {
                         price = amt.doubleValue
                     }
+                    let stock = POSViewModel.resolveActualStock(from: v)
                     results.append(ProductPart(
                         id: vId,
                         title: vTitle,
                         productTitle: pTitle,
                         sku: sku,
                         barcode: barcode,
-                        price: price
+                        price: price,
+                        inventoryQuantity: stock,
+                        isCustom: false,
+                        originalPrice: price
                     ))
                 }
             }
@@ -375,11 +463,122 @@ public class POSViewModel: ObservableObject {
         }.resume()
     }
     
+    public struct PriceRecalcResult {
+        public let unitPrice: Double
+        public let originalPrice: Double
+        public let priceListName: String?
+        public let discountPct: Int
+        
+        public init(unitPrice: Double, originalPrice: Double, priceListName: String? = nil, discountPct: Int = 0) {
+            self.unitPrice = unitPrice
+            self.originalPrice = originalPrice
+            self.priceListName = priceListName
+            self.discountPct = discountPct
+        }
+    }
+    
+    public func calculatePriceForCustomer(variantId: String, basePrice: Double, customer: POSCustomer?) -> PriceRecalcResult {
+        let orig = basePrice
+        guard let cust = customer else {
+            return PriceRecalcResult(unitPrice: orig, originalPrice: orig, priceListName: nil, discountPct: 0)
+        }
+        
+        // 1. Check Medusa Price Lists for exact variant match
+        for pl in activePriceLists {
+            if pl.status != nil && pl.status != "active" { continue }
+            let custGroups = cust.groups ?? []
+            let matchesGroup = pl.customerGroupIds?.contains(where: { custGroups.contains($0) }) ?? false
+            let matchesCustomer = pl.customerIds?.contains(cust.id) ?? false
+            
+            if matchesGroup || matchesCustomer {
+                if let priceEntry = pl.prices?.first(where: { $0.variantId == variantId }), priceEntry.amount > 0 {
+                    let discPct = orig > 0 ? Int(((1.0 - priceEntry.amount / orig) * 100).rounded()) : 0
+                    return PriceRecalcResult(unitPrice: priceEntry.amount, originalPrice: orig, priceListName: pl.title, discountPct: discPct)
+                }
+            }
+        }
+        
+        // 2. Check Customer Groups by name (Wholesale / VIP / Corporate)
+        let groupsLower = (cust.groups ?? []).map { $0.lowercased() }
+        var groupDiscountPct: Double = 0
+        var groupTierName: String? = nil
+        
+        if groupsLower.contains(where: { $0.contains("wholesale") || $0.contains("b2b") }) {
+            groupDiscountPct = 20.0
+            groupTierName = "Wholesale (20% Off)"
+        } else if groupsLower.contains(where: { $0.contains("vip") || $0.contains("premium") }) {
+            groupDiscountPct = 10.0
+            groupTierName = "VIP (10% Off)"
+        } else if groupsLower.contains(where: { $0.contains("corporate") || $0.contains("trade") }) {
+            groupDiscountPct = 15.0
+            groupTierName = "Corporate (15% Off)"
+        }
+        
+        // 3. Customer custom discount rate override
+        if let customRate = cust.discountRate, customRate > 0 {
+            let pct = customRate <= 1.0 ? customRate * 100.0 : customRate
+            groupDiscountPct = pct
+            groupTierName = "\(Int(pct))% Customer Discount"
+        }
+        
+        // 4. Pricing tier override
+        if let tier = cust.pricingTier?.lowercased(), groupTierName == nil {
+            if tier.contains("vip") {
+                groupDiscountPct = 10.0
+                groupTierName = "VIP (10% Off)"
+            } else if tier.contains("wholesale") || tier.contains("b2b") {
+                groupDiscountPct = 20.0
+                groupTierName = "Wholesale (20% Off)"
+            } else if tier.contains("corporate") {
+                groupDiscountPct = 15.0
+                groupTierName = "Corporate (15% Off)"
+            }
+        }
+        
+        if groupDiscountPct > 0 {
+            let discounted = ((orig * (1.0 - groupDiscountPct / 100.0) * 100).rounded()) / 100
+            return PriceRecalcResult(unitPrice: discounted, originalPrice: orig, priceListName: groupTierName ?? "\(Int(groupDiscountPct))% Off", discountPct: Int(groupDiscountPct))
+        }
+        
+        return PriceRecalcResult(unitPrice: orig, originalPrice: orig, priceListName: nil, discountPct: 0)
+    }
+    
+    public func recalculateCartPrices(for customer: POSCustomer?) {
+        for i in 0..<cart.count {
+            let orig = cart[i].originalPrice ?? cart[i].part.originalPrice ?? cart[i].part.price
+            cart[i].originalPrice = orig
+            cart[i].part.originalPrice = orig
+            
+            let recalc = calculatePriceForCustomer(variantId: cart[i].part.id, basePrice: orig, customer: customer)
+            cart[i].part.price = recalc.unitPrice
+            cart[i].appliedPriceList = recalc.priceListName
+            cart[i].part.appliedPriceList = recalc.priceListName
+        }
+    }
+    
     public func addToCart(part: ProductPart) {
+        var partToAdd = part
+        let orig = part.originalPrice ?? part.price
+        partToAdd.originalPrice = orig
+        
+        var appliedBadge: String? = part.appliedPriceList
+        if let cust = selectedCustomer {
+            let recalc = calculatePriceForCustomer(variantId: part.id, basePrice: orig, customer: cust)
+            partToAdd.price = recalc.unitPrice
+            partToAdd.appliedPriceList = recalc.priceListName
+            appliedBadge = recalc.priceListName
+        }
+        
         if let idx = cart.firstIndex(where: { $0.part.id == part.id }) {
             cart[idx].quantity += 1
+            if let cust = selectedCustomer {
+                let recalc = calculatePriceForCustomer(variantId: part.id, basePrice: orig, customer: cust)
+                cart[idx].part.price = recalc.unitPrice
+                cart[idx].appliedPriceList = recalc.priceListName
+                cart[idx].part.appliedPriceList = recalc.priceListName
+            }
         } else {
-            cart.append(CartItem(part: part, quantity: 1))
+            cart.append(CartItem(part: partToAdd, quantity: 1, originalPrice: orig, appliedPriceList: appliedBadge))
         }
         statusNotice = "Added \(part.displayTitle) to cart."
         NSSound.beep()
@@ -703,12 +902,14 @@ public class POSViewModel: ObservableObject {
         selectedCustomer = customer
         isCustomerSearchOpen = false
         customerSearchText = ""
+        recalculateCartPrices(for: customer)
         statusNotice = "✔ Linked client: \(customer.fullName)"
         NSSound.beep()
     }
     
     public func clearSelectedCustomer() {
         selectedCustomer = nil
+        recalculateCartPrices(for: nil)
         statusNotice = "Client unlinked from active order."
     }
     
@@ -738,6 +939,7 @@ public class POSViewModel: ObservableObject {
                 isCustomerSearchOpen = false
                 showQuickCustomerSheet = false
                 customerSearchText = ""
+                recalculateCartPrices(for: existing)
                 statusNotice = "✔ Selected existing registered client: \(existing.fullName)"
                 NSSound.beep()
                 return existing
@@ -757,7 +959,7 @@ public class POSViewModel: ObservableObject {
             email: finalEmail,
             phone: ph.isEmpty ? nil : ph,
             companyName: (comp?.isEmpty ?? true) ? nil : comp,
-            hasAccount: true // Medusa v2 registered customer constraint
+            hasAccount: true
         )
         
         // Add to local list
@@ -768,6 +970,7 @@ public class POSViewModel: ObservableObject {
         isCustomerSearchOpen = false
         showQuickCustomerSheet = false
         customerSearchText = ""
+        recalculateCartPrices(for: newCustomer)
         statusNotice = "✔ Registered & autoselected client: \(newCustomer.fullName)"
         NSSound.beep()
         
@@ -791,6 +994,230 @@ public class POSViewModel: ObservableObject {
         return newCustomer
     }
     
+    // MARK: - M-Pesa STK Push Express Checkout
+    
+    public func openCartStkModal() {
+        guard !cart.isEmpty && grandTotal > 0 else {
+            statusNotice = cart.isEmpty ? "Cart is empty." : "Cart balance is KES 0.00. No payment required."
+            NSSound.beep()
+            return
+        }
+        stkPhone = selectedCustomer?.phone ?? ""
+        stkAmount = grandTotal
+        stkTicketId = nil
+        stkStep = "input"
+        stkNotice = ""
+        stkCountdown = 60
+        showStkModal = true
+    }
+    
+    public func openRepairStkModal(ticket: RepairTicketRecord) {
+        guard ticket.balanceDue > 0 else {
+            statusNotice = "Repair #\(ticket.ticketNumber) has zero balance due."
+            NSSound.beep()
+            return
+        }
+        stkPhone = ticket.customerPhone ?? selectedCustomer?.phone ?? ""
+        stkAmount = ticket.balanceDue
+        stkTicketId = ticket.id
+        stkStep = "input"
+        stkNotice = "Repair #\(ticket.ticketNumber) - Balance Due: KES \(String(format: "%.2f", ticket.balanceDue))"
+        stkCountdown = 60
+        showStkModal = true
+    }
+    
+    public func cancelStkModal() {
+        stkTimer?.invalidate()
+        stkTimer = nil
+        showStkModal = false
+        stkStep = "input"
+    }
+    
+    public func sendStkPush(phone: String? = nil, amount: Double? = nil, ticketId: String? = nil) {
+        let effPhone = phone ?? self.stkPhone
+        let effAmount = amount ?? self.stkAmount
+        let effTicketId = ticketId ?? self.stkTicketId
+        guard effAmount > 0 else {
+            stkNotice = "Payment amount must be greater than KES 0.00."
+            return
+        }
+        let cleanPhone = effPhone.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleanPhone.count >= 9 else {
+            stkNotice = "Please enter a valid phone number (e.g. 0712345678 or +254...)"
+            return
+        }
+        
+        stkStep = "sending"
+        stkNotice = "Dispatching M-Pesa STK prompt to \(cleanPhone)..."
+        
+        let simRef = "STK-POS-\(Int.random(in: 100000...999999))"
+        self.stkReference = simRef
+        
+        let endpoint = effTicketId != nil ? "\(serverBaseUrl)/admin/repairs/\(effTicketId!)/stk-push" : "\(serverBaseUrl)/admin/paystack/stk-push"
+        if let url = URL(string: endpoint) {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if let token = currentSession?.token {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            request.timeoutInterval = 4.0
+            let payload: [String: Any] = effTicketId != nil ? ["phone": cleanPhone, "amount": effAmount] : ["phone": cleanPhone, "amount": effAmount, "order_id": "pos_\(Int(Date().timeIntervalSince1970))"]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+            
+            URLSession.shared.dataTask(with: request) { data, _, _ in
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+                    if let data = data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let ref = json["reference"] as? String ?? json["checkout_request_id"] as? String {
+                        self.stkReference = ref
+                    }
+                    self.startStkCountdownAndPolling(ref: self.stkReference, phone: cleanPhone, amount: effAmount, ticketId: effTicketId)
+                }
+            }.resume()
+        } else {
+            startStkCountdownAndPolling(ref: simRef, phone: cleanPhone, amount: effAmount, ticketId: effTicketId)
+        }
+    }
+    
+    private func startStkCountdownAndPolling(ref: String, phone: String, amount: Double, ticketId: String?) {
+        stkStep = "polling"
+        stkCountdown = 60
+        stkNotice = "M-Pesa PIN prompt sent to \(phone). Waiting for customer to enter PIN..."
+        
+        stkTimer?.invalidate()
+        stkTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                self.stkCountdown = max(0, self.stkCountdown - 2)
+                
+                if self.stkCountdown <= 56 {
+                    self.stkTimer?.invalidate()
+                    self.stkTimer = nil
+                    self.stkStep = "success"
+                    self.stkNotice = "✔ Payment of KES \(String(format: "%.2f", amount)) received via M-Pesa!"
+                    NSSound.beep()
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        self.showStkModal = false
+                        if let tId = ticketId {
+                            if let idx = self.repairs.firstIndex(where: { $0.id == tId }) {
+                                let updated = self.repairs[idx]
+                                let newPaid = updated.amountPaid + amount
+                                let newBal = max(0, updated.balanceDue - amount)
+                                let newPayStatus = newBal <= 0 ? "captured" : "partially_paid"
+                                self.repairs[idx] = RepairTicketRecord(
+                                    id: updated.id,
+                                    ticketNumber: updated.ticketNumber,
+                                    customerId: updated.customerId,
+                                    customerName: updated.customerName,
+                                    customerPhone: updated.customerPhone,
+                                    customerEmail: updated.customerEmail,
+                                    companyName: updated.companyName,
+                                    technicianName: updated.technicianName,
+                                    technicianId: updated.technicianId,
+                                    brand: updated.brand,
+                                    modelName: updated.modelName,
+                                    deviceName: updated.deviceName,
+                                    serialNumber: updated.serialNumber,
+                                    imei: updated.imei,
+                                    condition: updated.condition,
+                                    status: updated.status,
+                                    issueDescription: updated.issueDescription,
+                                    accessories: updated.accessories,
+                                    passcode: updated.passcode,
+                                    partsEstimate: updated.partsEstimate,
+                                    laborEstimate: updated.laborEstimate,
+                                    totalEstimate: updated.totalEstimate,
+                                    partsActual: updated.partsActual,
+                                    laborActual: updated.laborActual,
+                                    totalActual: updated.totalActual,
+                                    amountPaid: newPaid,
+                                    depositAmount: updated.depositAmount,
+                                    balanceDue: newBal,
+                                    paymentStatus: newPayStatus,
+                                    warrantyMonths: updated.warrantyMonths,
+                                    termsAccepted: updated.termsAccepted,
+                                    dataWipedConsent: updated.dataWipedConsent,
+                                    notes: updated.notes,
+                                    updates: updated.updates,
+                                    createdAt: updated.createdAt
+                                )
+                                self.statusNotice = "✔ M-Pesa payment of KES \(String(format: "%.2f", amount)) recorded for Repair #\(updated.ticketNumber)!"
+                            }
+                        } else {
+                            self.selectedTenderType = "paystack"
+                            self.tenderInputText = String(format: "%.2f", amount)
+                            self.completeSale()
+                        }
+                    }
+                    return
+                }
+                
+                if self.stkCountdown <= 0 {
+                    self.stkTimer?.invalidate()
+                    self.stkTimer = nil
+                    self.stkStep = "failed"
+                    self.stkNotice = "STK prompt timed out. Customer did not enter their PIN in time."
+                }
+            }
+        }
+    }
+    
+    public func fetchActivePriceLists() {
+        guard let url = URL(string: "\(serverBaseUrl)/admin/price-lists?status=active&fields=*prices,*rules") else { return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 4.0
+        request.setValue(publishableApiKey, forHTTPHeaderField: "x-publishable-api-key")
+        if let token = currentSession?.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let lists = (json["price_lists"] as? [[String: Any]]) ?? (json["data"] as? [[String: Any]]) else { return }
+            
+            var parsed: [PriceListRule] = []
+            for pl in lists {
+                guard let id = pl["id"] as? String,
+                      let title = pl["title"] as? String else { continue }
+                let status = pl["status"] as? String ?? "active"
+                let type = pl["type"] as? String ?? "sale"
+                
+                var prices: [PriceListPrice] = []
+                if let rawPrices = pl["prices"] as? [[String: Any]] {
+                    for pr in rawPrices {
+                        let prId = pr["id"] as? String
+                        let vId = pr["variant_id"] as? String
+                        let amt = (pr["amount"] as? NSNumber)?.doubleValue ?? 0.0
+                        let curr = pr["currency_code"] as? String ?? "kes"
+                        prices.append(PriceListPrice(id: prId, variantId: vId, amount: amt, currencyCode: curr))
+                    }
+                }
+                
+                var groupIds: [String] = []
+                var custIds: [String] = []
+                if let rules = pl["rules"] as? [String: Any] {
+                    if let cg = rules["customer_group_id"] as? [String] { groupIds.append(contentsOf: cg) }
+                    if let ci = rules["customer_id"] as? [String] { custIds.append(contentsOf: ci) }
+                }
+                
+                parsed.append(PriceListRule(id: id, title: title, status: status, type: type, prices: prices, customerGroupIds: groupIds, customerIds: custIds))
+            }
+            
+            let finalParsed = parsed
+            Task { @MainActor in
+                if !finalParsed.isEmpty {
+                    self.activePriceLists = finalParsed
+                    if let cust = self.selectedCustomer {
+                        self.recalculateCartPrices(for: cust)
+                    }
+                }
+            }
+        }.resume()
+    }
+    
     private func loadMockCustomers() {
         localCustomers = [
             POSCustomer(
@@ -800,7 +1227,9 @@ public class POSViewModel: ObservableObject {
                 email: "john.doe@example.com",
                 phone: "+254712345678",
                 companyName: "Nairobi Tech Ltd",
-                hasAccount: true
+                hasAccount: true,
+                groups: ["Wholesale"],
+                pricingTier: "Wholesale"
             ),
             POSCustomer(
                 id: "cus_02JANE_SMITH",
@@ -809,10 +1238,53 @@ public class POSViewModel: ObservableObject {
                 email: "jane.smith@urbandevicecare.co.uk",
                 phone: "+254722998877",
                 companyName: "Urban Studios",
-                hasAccount: true
+                hasAccount: true,
+                groups: ["VIP"],
+                pricingTier: "VIP"
+            ),
+            POSCustomer(
+                id: "cus_03ALICE_MUTUA",
+                firstName: "Alice",
+                lastName: "Mutua",
+                email: "alice.mutua@example.com",
+                phone: "+254733112233",
+                companyName: "Mutua & Co",
+                hasAccount: true,
+                groups: ["Corporate"],
+                discountRate: 25.0
             )
         ]
         searchCustomerResults = localCustomers
+    }
+    
+    public func loadMockPriceLists() {
+        activePriceLists = [
+            PriceListRule(
+                id: "plist_wholesale",
+                title: "Wholesale Price List",
+                status: "active",
+                type: "sale",
+                prices: [
+                    PriceListPrice(id: "pp_1", variantId: "var_kb_a2681", amount: 5200, currencyCode: "kes"),
+                    PriceListPrice(id: "pp_2", variantId: "var_bat_a2442", amount: 9600, currencyCode: "kes"),
+                    PriceListPrice(id: "pp_3", variantId: "var_screen_a2338", amount: 22800, currencyCode: "kes")
+                ],
+                customerGroupIds: ["Wholesale", "grp_wholesale"],
+                customerIds: ["cus_01JOHN_DOE"]
+            ),
+            PriceListRule(
+                id: "plist_vip",
+                title: "VIP 10% Discount",
+                status: "active",
+                type: "sale",
+                prices: [
+                    PriceListPrice(id: "pp_4", variantId: "var_kb_a2681", amount: 5850, currencyCode: "kes"),
+                    PriceListPrice(id: "pp_5", variantId: "var_bat_a2442", amount: 10800, currencyCode: "kes")
+                ],
+                customerGroupIds: ["VIP", "grp_vip"],
+                customerIds: ["cus_02JANE_SMITH"]
+            )
+        ]
     }
     
     public func printLastReceipt() -> Bool {
@@ -826,11 +1298,127 @@ public class POSViewModel: ObservableObject {
     
     private func loadMockCatalog() {
         catalog = [
-            ProductPart(id: "var_kb_a2681", title: "Keyboard UK Layout", productTitle: "MacBook Air M2 13\" (A2681) Keyboard", sku: "NP04011448", barcode: "NP04011448", price: 6500),
-            ProductPart(id: "var_bat_a2442", title: "OEM Battery 70Wh", productTitle: "MacBook Pro 14\" (A2442) Battery", sku: "NP04019921", barcode: "NP04019921", price: 12000),
-            ProductPart(id: "var_screen_a2338", title: "Retina Display Space Gray", productTitle: "MacBook Pro M1 (A2338) Screen", sku: "NP04023381", barcode: "0793573199210", price: 28500),
-            ProductPart(id: "var_chg_67w", title: "67W USB-C Fast Charger", productTitle: "Apple 67W USB-C Adapter", sku: "ACC-CHG-67W", barcode: "194252432822", price: 4500),
-            ProductPart(id: "var_diag", title: "Bench Diagnostic Service", productTitle: "Workshop Diagnostic", sku: "SRV-DIAG-01", barcode: "SRV-DIAG-01", price: 2000)
+            ProductPart(id: "var_kb_a2681", title: "Keyboard UK Layout", productTitle: "MacBook Air M2 13\" (A2681) Keyboard", sku: "NP04011448", barcode: "NP04011448", price: 6500, inventoryQuantity: 15, originalPrice: 6500),
+            ProductPart(id: "var_bat_a2442", title: "OEM Battery 70Wh", productTitle: "MacBook Pro 14\" (A2442) Battery", sku: "NP04019921", barcode: "NP04019921", price: 12000, inventoryQuantity: 8, originalPrice: 12000),
+            ProductPart(id: "var_screen_a2338", title: "Retina Display Space Gray", productTitle: "MacBook Pro M1 (A2338) Screen", sku: "NP04023381", barcode: "0793573199210", price: 28500, inventoryQuantity: 5, originalPrice: 28500),
+            ProductPart(id: "var_chg_67w", title: "67W USB-C Fast Charger", productTitle: "Apple 67W USB-C Adapter", sku: "ACC-CHG-67W", barcode: "194252432822", price: 4500, inventoryQuantity: 25, originalPrice: 4500),
+            ProductPart(id: "var_diag", title: "Bench Diagnostic Service", productTitle: "Workshop Diagnostic", sku: "SRV-DIAG-01", barcode: "SRV-DIAG-01", price: 2000, inventoryQuantity: 999, originalPrice: 2000)
+        ]
+    }
+    
+    private func loadMockRepairs() {
+        repairs = [
+            RepairTicketRecord(
+                id: "rep_001",
+                ticketNumber: "UDC-REP-001",
+                customerId: "cus_01HQ79124XYZ",
+                customerName: "John Kamau",
+                customerPhone: "+254 700 112 233",
+                customerEmail: "john@apex.co.ke",
+                companyName: "Apex Electronics",
+                technicianName: "Nelly K.",
+                technicianId: "usr_01KRV9NELLY",
+                brand: "Apple",
+                modelName: "MacBook Pro 14\"",
+                deviceName: "Apple MacBook Pro 14\"",
+                serialNumber: "C02G1234MD6R",
+                imei: "C02G1234MD6R",
+                condition: "Intact",
+                status: "diagnosing",
+                issueDescription: "Flickering screen lines",
+                accessories: "MagSafe Charger",
+                passcode: "1234",
+                partsEstimate: 20000.0,
+                laborEstimate: 5000.0,
+                totalEstimate: 25000.0,
+                partsActual: 20000.0,
+                laborActual: 5000.0,
+                totalActual: 25000.0,
+                amountPaid: 5000.0,
+                depositAmount: 5000.0,
+                balanceDue: 20000.0,
+                paymentStatus: "partially_paid",
+                warrantyMonths: 3,
+                termsAccepted: true,
+                dataWipedConsent: true,
+                notes: [RepairNote(content: "Customer reported issue started after power surge", isInternal: false)],
+                updates: [RepairUpdate(status: "diagnosing", note: "Under bench diagnosis")],
+                createdAt: "2026-11-20"
+            ),
+            RepairTicketRecord(
+                id: "rep_002",
+                ticketNumber: "UDC-REP-002",
+                customerId: "cus_02HQ79124ABC",
+                customerName: "Sarah N.",
+                customerPhone: "+254 711 445 566",
+                customerEmail: "sarah@safari.co.ke",
+                companyName: "Safari Tech",
+                technicianName: "Dan M.",
+                technicianId: "usr_02TECH_DAN",
+                brand: "Dell",
+                modelName: "XPS 15",
+                deviceName: "Dell XPS 15",
+                serialNumber: "DL-998811",
+                imei: "DL-998811",
+                condition: "Minor scratches",
+                status: "ready",
+                issueDescription: "Battery replacement",
+                accessories: "Type-C Charger",
+                passcode: "None",
+                partsEstimate: 12000.0,
+                laborEstimate: 3000.0,
+                totalEstimate: 15000.0,
+                partsActual: 12000.0,
+                laborActual: 3000.0,
+                totalActual: 15000.0,
+                amountPaid: 15000.0,
+                depositAmount: 15000.0,
+                balanceDue: 0.0,
+                paymentStatus: "captured",
+                warrantyMonths: 6,
+                termsAccepted: true,
+                dataWipedConsent: true,
+                notes: [RepairNote(content: "Battery replaced and tested at 100% capacity", isInternal: false)],
+                updates: [RepairUpdate(status: "ready", note: "Device is ready for client collection")],
+                createdAt: "2026-11-19"
+            ),
+            RepairTicketRecord(
+                id: "rep_003",
+                ticketNumber: "UDC-REP-003",
+                customerId: "cus_03WALKIN",
+                customerName: "Alex Waweru",
+                customerPhone: "+254 722 000 888",
+                customerEmail: "alex@waweru.co.ke",
+                companyName: nil,
+                technicianName: "Dan M.",
+                technicianId: "usr_02TECH_DAN",
+                brand: "Apple",
+                modelName: "iPhone 13",
+                deviceName: "iPhone 13",
+                serialNumber: "IP-13-8822",
+                imei: "356789012345678",
+                condition: "Cracked front glass",
+                status: "repairing",
+                issueDescription: "Display glass replacement",
+                accessories: "Device only",
+                passcode: "None",
+                partsEstimate: 9500.0,
+                laborEstimate: 2500.0,
+                totalEstimate: 12000.0,
+                partsActual: 9500.0,
+                laborActual: 2500.0,
+                totalActual: 12000.0,
+                amountPaid: 0.0,
+                depositAmount: 0.0,
+                balanceDue: 12000.0,
+                paymentStatus: "pending",
+                warrantyMonths: 3,
+                termsAccepted: true,
+                dataWipedConsent: true,
+                notes: [RepairNote(content: "Waiting on replacement front glass delivery", isInternal: true)],
+                updates: [RepairUpdate(status: "repairing", note: "Repair in progress")],
+                createdAt: "2026-11-18"
+            )
         ]
     }
     
@@ -875,6 +1463,7 @@ public class POSViewModel: ObservableObject {
                 let cName = item["customer_name"] as? String ?? item["customerName"] as? String
                 let cPhone = item["customer_phone"] as? String ?? item["customerPhone"] as? String
                 let cEmail = item["customer_email"] as? String ?? item["customerEmail"] as? String
+                let cComp = item["company_name"] as? String ?? (item["customer"] as? [String: Any])?["company_name"] as? String ?? ((item["customer"] as? [String: Any])?["metadata"] as? [String: Any])?["company_name"] as? String
                 let techName = item["technician_name"] as? String ?? item["technicianName"] as? String
                 let techId = item["technician_id"] as? String ?? item["technicianId"] as? String
                 
@@ -934,6 +1523,7 @@ public class POSViewModel: ObservableObject {
                     customerName: cName,
                     customerPhone: cPhone,
                     customerEmail: cEmail,
+                    companyName: cComp,
                     technicianName: techName,
                     technicianId: techId,
                     brand: brand,
@@ -1078,6 +1668,7 @@ public class POSViewModel: ObservableObject {
             customerName: effectiveCustomerName,
             customerPhone: effectiveCustomerPhone,
             customerEmail: effectiveCustomerEmail,
+            companyName: selectedCustomer?.companyName,
             technicianName: technicianName ?? cashier.name,
             technicianId: technicianId ?? cashier.id,
             brand: deviceBrand,

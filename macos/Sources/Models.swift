@@ -40,9 +40,11 @@ public struct ProductPart: Identifiable, Codable, Hashable {
     public let productTitle: String?
     public let sku: String?
     public let barcode: String?
-    public let price: Double
+    public var price: Double
     public let inventoryQuantity: Int
     public let isCustom: Bool
+    public var originalPrice: Double?
+    public var appliedPriceList: String?
     
     public init(
         id: String,
@@ -51,8 +53,10 @@ public struct ProductPart: Identifiable, Codable, Hashable {
         sku: String? = nil,
         barcode: String? = nil,
         price: Double,
-        inventoryQuantity: Int = 10,
-        isCustom: Bool = false
+        inventoryQuantity: Int = 0,
+        isCustom: Bool = false,
+        originalPrice: Double? = nil,
+        appliedPriceList: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -60,8 +64,10 @@ public struct ProductPart: Identifiable, Codable, Hashable {
         self.sku = sku
         self.barcode = barcode
         self.price = price
-        self.inventoryQuantity = inventoryQuantity
+        self.inventoryQuantity = max(0, inventoryQuantity)
         self.isCustom = isCustom
+        self.originalPrice = originalPrice
+        self.appliedPriceList = appliedPriceList
     }
     
     public var displayTitle: String {
@@ -75,12 +81,16 @@ public struct ProductPart: Identifiable, Codable, Hashable {
 
 public struct CartItem: Identifiable, Hashable {
     public var id: String { part.id }
-    public let part: ProductPart
+    public var part: ProductPart
     public var quantity: Int
+    public var originalPrice: Double?
+    public var appliedPriceList: String?
     
-    public init(part: ProductPart, quantity: Int = 1) {
+    public init(part: ProductPart, quantity: Int = 1, originalPrice: Double? = nil, appliedPriceList: String? = nil) {
         self.part = part
         self.quantity = quantity
+        self.originalPrice = originalPrice ?? part.originalPrice
+        self.appliedPriceList = appliedPriceList ?? part.appliedPriceList
     }
     
     public var lineTotal: Double {
@@ -127,6 +137,7 @@ public struct RepairTicketRecord: Identifiable, Codable, Hashable {
     public let customerName: String?
     public let customerPhone: String?
     public let customerEmail: String?
+    public let companyName: String?
     public let technicianName: String?
     public let technicianId: String?
     public let brand: String?
@@ -163,6 +174,7 @@ public struct RepairTicketRecord: Identifiable, Codable, Hashable {
         customerName: String? = nil,
         customerPhone: String? = nil,
         customerEmail: String? = nil,
+        companyName: String? = nil,
         technicianName: String? = nil,
         technicianId: String? = nil,
         brand: String? = nil,
@@ -172,7 +184,7 @@ public struct RepairTicketRecord: Identifiable, Codable, Hashable {
         imei: String? = nil,
         condition: String? = nil,
         status: String = "received",
-        issueDescription: String,
+        issueDescription: String = "",
         accessories: String? = nil,
         passcode: String? = nil,
         partsEstimate: Double = 0.0,
@@ -198,6 +210,7 @@ public struct RepairTicketRecord: Identifiable, Codable, Hashable {
         self.customerName = customerName
         self.customerPhone = customerPhone
         self.customerEmail = customerEmail
+        self.companyName = companyName
         self.technicianName = technicianName
         self.technicianId = technicianId
         self.brand = brand
@@ -226,6 +239,16 @@ public struct RepairTicketRecord: Identifiable, Codable, Hashable {
         self.notes = notes
         self.updates = updates
         self.createdAt = createdAt
+    }
+    
+    public var clientDisplayName: String {
+        if let comp = companyName, !comp.isEmpty {
+            if let cust = customerName, !cust.isEmpty {
+                return "\(comp) (\(cust))"
+            }
+            return comp
+        }
+        return customerName ?? "Walk-in Client"
     }
 }
 
@@ -257,15 +280,21 @@ public struct POSCustomer: Identifiable, Codable, Hashable {
     public let phone: String?
     public let companyName: String?
     public let hasAccount: Bool
+    public let groups: [String]?
+    public let discountRate: Double?
+    public let pricingTier: String?
     
     public init(
         id: String,
         firstName: String,
         lastName: String? = nil,
-        email: String,
+        email: String = "",
         phone: String? = nil,
         companyName: String? = nil,
-        hasAccount: Bool = true
+        hasAccount: Bool = true,
+        groups: [String]? = nil,
+        discountRate: Double? = nil,
+        pricingTier: String? = nil
     ) {
         self.id = id
         self.firstName = firstName
@@ -274,6 +303,9 @@ public struct POSCustomer: Identifiable, Codable, Hashable {
         self.phone = phone
         self.companyName = companyName
         self.hasAccount = hasAccount
+        self.groups = groups
+        self.discountRate = discountRate
+        self.pricingTier = pricingTier
     }
     
     public var fullName: String {
@@ -281,5 +313,46 @@ public struct POSCustomer: Identifiable, Codable, Hashable {
             return "\(firstName) \(last)"
         }
         return firstName
+    }
+}
+
+public struct PriceListPrice: Codable, Hashable {
+    public let id: String?
+    public let variantId: String?
+    public let amount: Double
+    public let currencyCode: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case variantId = "variant_id"
+        case amount
+        case currencyCode = "currency_code"
+    }
+    
+    public init(id: String? = nil, variantId: String? = nil, amount: Double, currencyCode: String? = "kes") {
+        self.id = id
+        self.variantId = variantId
+        self.amount = amount
+        self.currencyCode = currencyCode
+    }
+}
+
+public struct PriceListRule: Identifiable, Codable, Hashable {
+    public let id: String
+    public let title: String
+    public let status: String?
+    public let type: String?
+    public let prices: [PriceListPrice]?
+    public let customerGroupIds: [String]?
+    public let customerIds: [String]?
+    
+    public init(id: String, title: String, status: String? = "active", type: String? = "sale", prices: [PriceListPrice]? = nil, customerGroupIds: [String]? = nil, customerIds: [String]? = nil) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.type = type
+        self.prices = prices
+        self.customerGroupIds = customerGroupIds
+        self.customerIds = customerIds
     }
 }

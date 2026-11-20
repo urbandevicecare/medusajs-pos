@@ -1,6 +1,6 @@
 {
   "name": "@urbandevicecare/medusajs-webpos",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "exports": "./main.ts",
   "tasks": {
     "start": "deno run -A --env main.ts",

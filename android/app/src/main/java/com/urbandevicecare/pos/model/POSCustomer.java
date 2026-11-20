@@ -1,5 +1,8 @@
 package com.urbandevicecare.pos.model;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Registered POS Client model conforming to Medusa v2 customer constraints.
  */
@@ -11,8 +14,15 @@ public class POSCustomer {
     private final String phone;
     private final String companyName;
     private final boolean hasAccount;
+    private final List<String> groups;
+    private final Double discountRate;
+    private final String pricingTier;
 
     public POSCustomer(String id, String firstName, String lastName, String email, String phone, String companyName, boolean hasAccount) {
+        this(id, firstName, lastName, email, phone, companyName, hasAccount, new ArrayList<>(), null, null);
+    }
+
+    public POSCustomer(String id, String firstName, String lastName, String email, String phone, String companyName, boolean hasAccount, List<String> groups, Double discountRate, String pricingTier) {
         this.id = id;
         this.firstName = firstName;
         this.lastName = lastName;
@@ -20,6 +30,9 @@ public class POSCustomer {
         this.phone = phone;
         this.companyName = companyName;
         this.hasAccount = hasAccount;
+        this.groups = groups != null ? groups : new ArrayList<>();
+        this.discountRate = discountRate;
+        this.pricingTier = pricingTier;
     }
 
     public String getId() {
@@ -55,5 +68,17 @@ public class POSCustomer {
 
     public boolean hasAccount() {
         return hasAccount;
+    }
+
+    public List<String> getGroups() {
+        return groups;
+    }
+
+    public Double getDiscountRate() {
+        return discountRate;
+    }
+
+    public String getPricingTier() {
+        return pricingTier;
     }
 }

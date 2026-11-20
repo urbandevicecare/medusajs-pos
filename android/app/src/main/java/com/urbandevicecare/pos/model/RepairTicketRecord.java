@@ -26,6 +26,7 @@ public class RepairTicketRecord {
     private final boolean termsAccepted;
     private final boolean dataWipedConsent;
     private final String createdAt;
+    private final String companyName;
 
     public RepairTicketRecord(
             String id,
@@ -51,7 +52,7 @@ public class RepairTicketRecord {
                 status, issueDescription, accessories, passcode,
                 totalEstimate, depositAmount, balanceDue,
                 depositAmount >= totalEstimate && totalEstimate > 0 ? "captured" : depositAmount > 0 ? "partially_paid" : "pending",
-                true, true, createdAt
+                true, true, createdAt, null
         );
     }
 
@@ -82,6 +83,42 @@ public class RepairTicketRecord {
             boolean dataWipedConsent,
             String createdAt
     ) {
+        this(
+                id, ticketNumber, customerId, customerName, customerPhone, customerEmail,
+                technicianName, technicianId, brand, modelName, deviceName, serialNumber, imei, condition,
+                status, issueDescription, accessories, passcode,
+                totalEstimate, depositAmount, balanceDue, paymentStatus, termsAccepted, dataWipedConsent, createdAt, null
+        );
+    }
+
+    public RepairTicketRecord(
+            String id,
+            String ticketNumber,
+            String customerId,
+            String customerName,
+            String customerPhone,
+            String customerEmail,
+            String technicianName,
+            String technicianId,
+            String brand,
+            String modelName,
+            String deviceName,
+            String serialNumber,
+            String imei,
+            String condition,
+            String status,
+            String issueDescription,
+            String accessories,
+            String passcode,
+            double totalEstimate,
+            double depositAmount,
+            double balanceDue,
+            String paymentStatus,
+            boolean termsAccepted,
+            boolean dataWipedConsent,
+            String createdAt,
+            String companyName
+    ) {
         this.id = id;
         this.ticketNumber = ticketNumber;
         this.customerId = customerId;
@@ -107,6 +144,7 @@ public class RepairTicketRecord {
         this.termsAccepted = termsAccepted;
         this.dataWipedConsent = dataWipedConsent;
         this.createdAt = createdAt != null ? createdAt : "";
+        this.companyName = companyName;
     }
 
     public String getId() { return id; }
@@ -134,4 +172,12 @@ public class RepairTicketRecord {
     public boolean isTermsAccepted() { return termsAccepted; }
     public boolean isDataWipedConsent() { return dataWipedConsent; }
     public String getCreatedAt() { return createdAt; }
+    public String getCompanyName() { return companyName; }
+    public String getClientDisplayName() {
+        String name = (customerName != null && !customerName.trim().isEmpty()) ? customerName.trim() : "Walk-in Customer";
+        if (companyName != null && !companyName.trim().isEmpty()) {
+            return companyName.trim() + " (" + name + ")";
+        }
+        return name;
+    }
 }

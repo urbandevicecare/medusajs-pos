@@ -230,6 +230,33 @@
             android:textColor="@color/pos_accent" />
     </LinearLayout>
 
+    <!-- Item Search Suggestions Dropdown Container -->
+    <LinearLayout
+        android:id="@+id/layout_item_suggestions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/pos_surface"
+        android:padding="6dp"
+        android:layout_marginBottom="8dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Suggestions (tap to add to cart):"
+            android:textColor="@color/pos_text_secondary"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp" />
+
+        <LinearLayout
+            android:id="@+id/layout_suggestions_items"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </LinearLayout>
+
     <!-- Main Workspace (Catalog on left/top, Cart on right/bottom) -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -330,19 +357,25 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
+                    android:gravity="center_vertical"
                     android:layout_marginTop="2dp">
-                    <TextView
-                        android:layout_width="0dp"
+                    <CheckBox
+                        android:id="@+id/cb_apply_vat"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="VAT (16%):"
+                        android:text="Apply 16% VAT"
                         android:textColor="@color/pos_text_secondary"
-                        android:textSize="11sp" />
+                        android:textSize="11sp"
+                        android:checked="false" />
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
                     <TextView
                         android:id="@+id/tv_tax"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="KES 0.00"
+                        android:text="KES 0.00 (Exempt)"
                         android:textColor="@color/pos_text_primary"
                         android:textSize="11sp" />
                 </LinearLayout>
@@ -500,23 +533,24 @@
                 android:layout_marginEnd="4dp" />
 
             <Button
-                android:id="@+id/btn_paystack"
+                android:id="@+id/btn_mpesa_stk"
                 android:layout_width="0dp"
                 android:layout_height="44dp"
-                android:layout_weight="1.2"
-                android:text="Paystack QR"
+                android:layout_weight="1.6"
+                android:text="Push M-Pesa STK"
                 android:textSize="11sp"
-                android:backgroundTint="@color/pos_surface_variant"
-                android:textColor="@color/pos_accent"
+                android:textStyle="bold"
+                android:backgroundTint="#00A344"
+                android:textColor="#FFFFFF"
                 android:layout_marginEnd="4dp" />
 
             <Button
                 android:id="@+id/btn_charge_print"
                 android:layout_width="0dp"
                 android:layout_height="44dp"
-                android:layout_weight="2"
+                android:layout_weight="1.8"
                 android:text="Charge &amp; Print (CS30)"
-                android:textSize="12sp"
+                android:textSize="11sp"
                 android:textStyle="bold"
                 android:backgroundTint="@color/pos_accent"
                 android:textColor="#FFFFFF" />

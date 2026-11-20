@@ -1,5 +1,5 @@
-import { assertEquals, assertExists } from "jsr:@std/assert@1";
-import { MedusaPOSService } from "../services/medusa.ts";
+import { assertEquals, assertExists, assertRejects } from "jsr:@std/assert@1";
+import { MedusaPOSService, resolveActualStock } from "../services/medusa.ts";
 import {
   ThermalPrinterService,
   type ThermalReceiptData,
@@ -888,4 +888,70 @@ Deno.test("POS Checkout with digital receipt and documents plugin triggering", a
   assertEquals(data.metadata.paystack_reference, "STK-POS-998877");
   assertEquals(data.metadata.customer_phone, "+254712345678");
   assertEquals(data.metadata.customer_company, "Nairobi Tech Ltd");
+});
+
+Deno.test("Actual in-stock quantity resolution without fake defaults", () => {
+  // 1. Direct inventory_quantity
+  assertEquals(resolveActualStock({ inventory_quantity: 15 }), 15);
+  assertEquals(resolveActualStock({ inventory_quantity: 0 }), 0);
+
+  // 2. Direct stock_quantity
+  assertEquals(resolveActualStock({ stock_quantity: 4 }), 4);
+  assertEquals(resolveActualStock({ stock_quantity: 0 }), 0);
+
+  // 3. Medusa v2 inventory_items with location_levels
+  const itemWithLevels = {
+    inventory_items: [
+      {
+        inventory: {
+          location_levels: [
+            { stocked_quantity: 8, available_quantity: 7 },
+            { stocked_quantity: 5, available_quantity: 5 },
+          ],
+        },
+      },
+    ],
+  };
+  assertEquals(resolveActualStock(itemWithLevels), 13);
+
+  // 4. Medusa v2 variant with empty/zero location_levels
+  const outOfStockVariant = {
+    inventory_items: [
+      {
+        location_levels: [
+          { stocked_quantity: 0, available_quantity: 0 },
+        ],
+      },
+    ],
+  };
+  assertEquals(resolveActualStock(outOfStockVariant), 0);
+
+  // 5. Undefined or empty item resolves to 0
+  assertEquals(resolveActualStock({}), 0);
+  assertEquals(resolveActualStock(null), 0);
+});
+
+Deno.test("STK Push rejects zero or negative balance", async () => {
+  const service = new MedusaPOSService();
+  await assertRejects(
+    async () => {
+      await service.initiateStkPush({
+        phone: "0712345678",
+        amount: 0,
+      });
+    },
+    Error,
+    "Valid phone number and amount are required",
+  );
+
+  await assertRejects(
+    async () => {
+      await service.initiateStkPush({
+        phone: "0712345678",
+        amount: -50,
+      });
+    },
+    Error,
+    "Valid phone number and amount are required",
+  );
 });

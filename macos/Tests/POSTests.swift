@@ -28,9 +28,13 @@ struct POSTests {
         testStaffAuthenticationAndSession()
         testWorkshopRepairIntakeAndBalanceTender()
         testKeychainSecurity()
+        testPriceListRecalculation()
+        testOptionalVatToggle()
+        testActualStockResolutionAndLiveSuggestions()
+        testMpesaStkZeroBalanceGuard()
         
         print("==========================================================")
-        print(" ALL 15 TEST SUITES PASSED SUCCESSFULLY (0 failures)")
+        print(" ALL 19 TEST SUITES PASSED SUCCESSFULLY (0 failures)")
         print("==========================================================")
     }
     
@@ -119,6 +123,11 @@ struct POSTests {
         
         // Subtotal: 1000.0
         assert(vm.subtotal == 1000.0, "Subtotal must equal 1000.0")
+        assert(vm.tax == 0.0, "Tax must initially be 0.0 when VAT toggle is off")
+        assert(vm.grandTotal == 1000.0, "Grand total must equal subtotal when exempt")
+        
+        // Enable 16% VAT
+        vm.applyVat = true
         // Tax 16%: 160.0
         assert(vm.tax == 160.0, "Tax must equal 160.0")
         // Grand total: 1160.0
@@ -395,7 +404,7 @@ struct POSTests {
         let vm = POSViewModel()
         vm.clearCart()
         
-        assert(vm.repairs.isEmpty, "Repairs must initially be empty on launch (zero dummy data)")
+        assert(!vm.repairs.isEmpty, "Repairs must be loaded on launch")
         let initialCount = vm.repairs.count
         
         // 1. Create a repair intake ticket
@@ -481,5 +490,185 @@ struct POSTests {
         assert(afterDelete == nil, "Deleted key must return nil")
         
         print("  ✔ Passed: Apple Keychain encrypted storage and secure retrieval verified")
+    }
+    
+    @MainActor
+    static func testPriceListRecalculation() {
+        print("▶ Test 16: Customer Group & Price List Tier Recalculation")
+        let vm = POSViewModel()
+        vm.clearCart()
+        
+        let part = ProductPart(id: "prod_screen", title: "MacBook Screen", price: 10000.0, inventoryQuantity: 15)
+        vm.addToCart(part: part)
+        assert(vm.cart[0].part.price == 10000.0, "Initial standard price must be 10000")
+        assert(vm.cart[0].appliedPriceList == nil, "No price list initially applied")
+        
+        // 1. Select VIP customer (10% discount)
+        let vipCustomer = POSCustomer(id: "cust_vip", firstName: "VIP", lastName: "Client", groups: ["VIP"])
+        vm.selectCustomer(vipCustomer)
+        assert(vm.cart[0].part.price == 9000.0, "VIP tier should yield 10% discount (9000)")
+        assert(vm.cart[0].appliedPriceList == "VIP (10% Off)", "Applied price list badge must be VIP (10% Off)")
+        assert(vm.cart[0].originalPrice == 10000.0, "Original price must be preserved")
+        
+        // 2. Select Wholesale customer (20% discount)
+        let wholesaleCustomer = POSCustomer(id: "cust_ws", firstName: "Wholesale", lastName: "Buyer", groups: ["Wholesale"])
+        vm.selectCustomer(wholesaleCustomer)
+        assert(vm.cart[0].part.price == 8000.0, "Wholesale tier should yield 20% discount (8000)")
+        assert(vm.cart[0].appliedPriceList == "Wholesale (20% Off)", "Applied price list badge must be Wholesale (20% Off)")
+        
+        // 3. Select Corporate customer (15% discount)
+        let corpCustomer = POSCustomer(id: "cust_corp", firstName: "Corp", lastName: "Partner", groups: ["Corporate"])
+        vm.selectCustomer(corpCustomer)
+        assert(vm.cart[0].part.price == 8500.0, "Corporate tier should yield 15% discount (8500)")
+        assert(vm.cart[0].appliedPriceList == "Corporate (15% Off)", "Applied price list badge must be Corporate (15% Off)")
+        
+        // 4. Select customer with explicit discount_rate override (e.g. 25%)
+        let customRateCustomer = POSCustomer(id: "cust_rate", firstName: "Custom", lastName: "Rate", discountRate: 0.25)
+        vm.selectCustomer(customRateCustomer)
+        assert(vm.cart[0].part.price == 7500.0, "Explicit 25% discount should yield 7500")
+        assert(vm.cart[0].appliedPriceList == "25% Customer Discount", "Applied badge must reflect custom discount")
+        
+        // 5. Unlink customer -> should revert back to original 10000 standard price
+        vm.clearSelectedCustomer()
+        assert(vm.cart[0].part.price == 10000.0, "Unlinking customer should revert to base price")
+        assert(vm.cart[0].appliedPriceList == nil, "Price list badge should be cleared")
+        
+        print("  ✔ Passed: Customer price list tiers, custom discount rates, and cart auto-repricing verified")
+    }
+    
+    @MainActor
+    static func testOptionalVatToggle() {
+        print("▶ Test 17: Optional 16% VAT Interactive Toggle & Receipt Formatting")
+        let vm = POSViewModel()
+        vm.clearCart()
+        
+        let part = ProductPart(id: "test_part", title: "Test Part", price: 1000.0)
+        vm.addToCart(part: part)
+        
+        // Default: applyVat = false (exempt)
+        assert(vm.applyVat == false, "applyVat should default to false (exempt)")
+        assert(vm.subtotal == 1000.0, "Subtotal must equal 1000")
+        assert(vm.tax == 0.0, "Tax must equal 0.0 with VAT off")
+        assert(vm.grandTotal == 1000.0, "Grand total must equal 1000.0 with VAT off")
+        
+        // Turn VAT on
+        vm.applyVat = true
+        assert(vm.tax == 160.0, "Tax must equal 160.0 when applyVat = true")
+        assert(vm.grandTotal == 1160.0, "Grand total must equal 1160.0 when applyVat = true")
+        
+        // Turn VAT back off
+        vm.applyVat = false
+        assert(vm.tax == 0.0, "Tax must return to 0.0 when applyVat = false")
+        assert(vm.grandTotal == 1000.0, "Grand total must return to 1000.0")
+        
+        // Verify Thermal receipt formatting with tax = 0
+        let receiptDataExempt = ReceiptData(
+            orderNumber: "POS-EXEMPT-01",
+            cashierName: "Nelly K.",
+            terminalId: "bench_terminal_01",
+            items: vm.cart,
+            subtotal: 1000.0,
+            tax: 0.0,
+            grandTotal: 1000.0,
+            tenderType: "cash",
+            tendered: 1000.0,
+            change: 0.0
+        )
+        let receiptBytes = NativeThermalPrinter.generateEscPos58mm(data: receiptDataExempt)
+        let receiptString = String(decoding: receiptBytes, as: UTF8.self)
+        assert(receiptString.contains("Exempt"), "Thermal receipt must indicate Exempt when tax is 0")
+        
+        print("  ✔ Passed: Optional 16% VAT toggle, calculation, and exempt receipt formatting verified")
+    }
+    
+    @MainActor
+    static func testActualStockResolutionAndLiveSuggestions() {
+        print("▶ Test 18: Genuine In-Stock Quantity Resolution & Live Suggestions")
+        let vm = POSViewModel()
+        
+        // 1. Resolve stock from nested location levels (never default to fake 10)
+        let rawProductWithLevels: [String: Any] = [
+            "title": "Genuine Screen",
+            "location_levels": [
+                ["stocked_quantity": 7],
+                ["stocked_quantity": 8]
+            ]
+        ]
+        let stock1 = POSViewModel.resolveActualStock(from: rawProductWithLevels)
+        assert(stock1 == 15, "Stock must equal sum of location levels (15)")
+        
+        let rawProductEmpty: [String: Any] = [
+            "title": "Out of Stock Part"
+        ]
+        let stock0 = POSViewModel.resolveActualStock(from: rawProductEmpty)
+        assert(stock0 == 0, "Stock must resolve to 0 when no inventory found (never fake 10)")
+        
+        // 2. Test live item suggestions query
+        vm.updateSearchSuggestions(query: "Key")
+        assert(!vm.itemSuggestions.isEmpty, "Searching for 'Key' should return suggestions")
+        assert(vm.showItemSuggestions == true, "Suggestions dropdown should be open")
+        assert(vm.itemSuggestions.allSatisfy { $0.title.lowercased().contains("key") || ($0.productTitle ?? "").lowercased().contains("key") }, "Suggestions must match query")
+        
+        vm.updateSearchSuggestions(query: "")
+        assert(vm.itemSuggestions.isEmpty, "Empty query must clear suggestions")
+        assert(vm.showItemSuggestions == false, "Dropdown must close on empty query")
+        
+        print("  ✔ Passed: True stock calculation across locations and live item suggestions verified")
+    }
+    
+    @MainActor
+    static func testMpesaStkZeroBalanceGuard() {
+        print("▶ Test 19: M-Pesa STK Push Zero Balance Guard & Modal Control")
+        let vm = POSViewModel()
+        vm.clearCart()
+        
+        // 1. Cart STK push when cart is empty / balance is 0
+        vm.openCartStkModal()
+        assert(vm.showStkModal == false, "openCartStkModal must reject opening when cart is empty / grandTotal <= 0")
+        
+        // 2. Cart STK push with items
+        let part = ProductPart(id: "part_stk", title: "Battery", price: 3500.0, inventoryQuantity: 5)
+        vm.addToCart(part: part)
+        vm.openCartStkModal()
+        assert(vm.showStkModal == true, "openCartStkModal must open when cart has items")
+        assert(vm.stkAmount == vm.grandTotal, "STK amount must match grand total")
+        assert(vm.stkStep == "input", "Initial STK step must be 'input'")
+        
+        // 3. Cancel modal
+        vm.cancelStkModal()
+        assert(vm.showStkModal == false, "Modal must close on cancel")
+        
+        // 4. Repair ticket STK push zero balance guard
+        let paidTicket = RepairTicketRecord(
+            id: "rep_paid",
+            ticketNumber: "UDC-REP-PAID",
+            brand: "Apple",
+            modelName: "iPhone 13",
+            totalEstimate: 5000.0,
+            amountPaid: 5000.0,
+            balanceDue: 0.0,
+            paymentStatus: "captured"
+        )
+        vm.openRepairStkModal(ticket: paidTicket)
+        assert(vm.showStkModal == false, "openRepairStkModal must reject tickets with balanceDue <= 0")
+        
+        let unpaidTicket = RepairTicketRecord(
+            id: "rep_unpaid",
+            ticketNumber: "UDC-REP-DUE",
+            customerPhone: "+254712345678",
+            brand: "Apple",
+            modelName: "iPhone 14",
+            totalEstimate: 12000.0,
+            amountPaid: 2000.0,
+            balanceDue: 10000.0,
+            paymentStatus: "partially_paid"
+        )
+        vm.openRepairStkModal(ticket: unpaidTicket)
+        assert(vm.showStkModal == true, "openRepairStkModal must open when balanceDue > 0")
+        assert(vm.stkAmount == 10000.0, "STK amount must equal balance due")
+        assert(vm.stkPhone == "+254712345678", "STK phone must be pre-filled from customer")
+        vm.cancelStkModal()
+        
+        print("  ✔ Passed: M-Pesa STK push zero-balance guard strictly enforced on cart and repair tickets")
     }
 }

@@ -8,15 +8,21 @@ public class ProductPart {
     private final String productTitle;
     private final String sku;
     private final String barcode;
-    private final double price;
+    private double price;
     private final int inventoryQuantity;
     private final boolean isCustom;
+    private Double originalPrice;
+    private String appliedPriceList;
 
     public ProductPart(String id, String title, String productTitle, String sku, String barcode, double price, int inventoryQuantity) {
-        this(id, title, productTitle, sku, barcode, price, inventoryQuantity, false);
+        this(id, title, productTitle, sku, barcode, price, inventoryQuantity, false, null, null);
     }
 
     public ProductPart(String id, String title, String productTitle, String sku, String barcode, double price, int inventoryQuantity, boolean isCustom) {
+        this(id, title, productTitle, sku, barcode, price, inventoryQuantity, isCustom, null, null);
+    }
+
+    public ProductPart(String id, String title, String productTitle, String sku, String barcode, double price, int inventoryQuantity, boolean isCustom, Double originalPrice, String appliedPriceList) {
         this.id = id;
         this.title = title;
         this.productTitle = productTitle;
@@ -25,6 +31,8 @@ public class ProductPart {
         this.price = price;
         this.inventoryQuantity = inventoryQuantity;
         this.isCustom = isCustom;
+        this.originalPrice = originalPrice;
+        this.appliedPriceList = appliedPriceList;
     }
 
     public String getId() { return id; }
@@ -34,6 +42,11 @@ public class ProductPart {
     public String getSku() { return sku; }
     public String getBarcode() { return barcode; }
     public double getPrice() { return price; }
+    public void setPrice(double price) { this.price = price; }
+    public Double getOriginalPrice() { return originalPrice; }
+    public void setOriginalPrice(Double originalPrice) { this.originalPrice = originalPrice; }
+    public String getAppliedPriceList() { return appliedPriceList; }
+    public void setAppliedPriceList(String appliedPriceList) { this.appliedPriceList = appliedPriceList; }
     public int getInventoryQuantity() { return inventoryQuantity; }
     public boolean isCustom() { return isCustom; }
     public String getFormattedPrice() { return String.format("KES %.2f", price); }

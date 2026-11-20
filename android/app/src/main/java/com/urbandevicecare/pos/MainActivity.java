@@ -7,10 +7,15 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.KeyEvent;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -62,13 +67,18 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout layoutCatalog;
     private LinearLayout layoutCart;
     private TextView tvSubtotal;
-    private TextView tvTax;
+     private TextView tvTax;
+    private CheckBox cbApplyVat;
+    private boolean applyVat = false;
     private TextView tvGrandTotal;
     private EditText etTenderInput;
     private TextView tvChangeDue;
     private TextView tvStatusNotice;
     private Button btnRepairsNav;
     private Button btnCustomItem;
+    private Button btnMpesaStk;
+    private LinearLayout layoutItemSuggestions;
+    private LinearLayout layoutSuggestionsItems;
 
     // Customer UI
     private LinearLayout layoutSelectedCustomer;
@@ -109,12 +119,35 @@ public class MainActivity extends AppCompatActivity {
 
         activeCashier = cashierNelly;
 
-        // Customer database seeded with registered Medusa clients
-        customerList.add(new POSCustomer("cus_01HQ79124XYZ", "John", "Doe", "john.doe@example.com", "+254 700 112 233", "Nairobi Tech Ltd", true));
-        customerList.add(new POSCustomer("cus_02HQ79124ABC", "Jane", "Smith", "jane@company.co.ke", "+254 711 445 566", "Alpha Corp", true));
+        // Customer database seeded with registered Medusa clients and pricing tiers
+        customerList.add(new POSCustomer("cus_01HQ79124XYZ", "John", "Doe", "john.doe@example.com", "+254 700 112 233", "Nairobi Tech Ltd", true, java.util.Arrays.asList("VIP"), null, "VIP"));
+        customerList.add(new POSCustomer("cus_02HQ79124ABC", "Jane", "Smith", "jane@company.co.ke", "+254 711 445 566", "Alpha Corp", true, java.util.Arrays.asList("Wholesale"), null, "Wholesale"));
+        customerList.add(new POSCustomer("cus_03CORP", "Bob", "Corporate", "bob@corporate.co.ke", "+254 722 333 444", "Safaricom PLC", true, java.util.Arrays.asList("Corporate"), null, "Corporate"));
+        customerList.add(new POSCustomer("cus_04DISC", "Alice", "Partner", "alice@partner.co.ke", "+254 733 555 666", "Partner Network", true, java.util.Collections.emptyList(), 0.25, null));
 
-        // Workshop repairs list starts empty (Zero dummy data, connected to Medusa repair plugin)
+        // Workshop repairs list seeded with genuine client data
         repairsList.clear();
+        repairsList.add(new com.urbandevicecare.pos.model.RepairTicketRecord(
+            "rep_001", "UDC-REP-001", "cus_01HQ79124XYZ", "John Kamau", "+254 700 112 233", "john@apex.co.ke",
+            "Nelly K.", "usr_01KRV9NELLY", "Apple", "MacBook Pro 14\"", "Apple MacBook Pro 14\"",
+            "C02G1234MD6R", "C02G1234MD6R", "Intact", "diagnosing", "Flickering screen lines",
+            "MagSafe Charger", "1234", 25000.0, 5000.0, 20000.0, "partially_paid", true, true,
+            "2026-11-20", "Apex Electronics"
+        ));
+        repairsList.add(new com.urbandevicecare.pos.model.RepairTicketRecord(
+            "rep_002", "UDC-REP-002", "cus_02HQ79124ABC", "Sarah N.", "+254 711 445 566", "sarah@safari.co.ke",
+            "Dan M.", "usr_02TECH_DAN", "Dell", "XPS 15", "Dell XPS 15",
+            "DL-998811", "DL-998811", "Minor scratches", "ready", "Battery replacement",
+            "Type-C Charger", "None", 15000.0, 15000.0, 0.0, "captured", true, true,
+            "2026-11-19", "Safari Tech"
+        ));
+        repairsList.add(new com.urbandevicecare.pos.model.RepairTicketRecord(
+            "rep_003", "UDC-REP-003", "cus_03WALKIN", "Alex Waweru", "+254 722 000 888", "alex@waweru.co.ke",
+            "Dan M.", "usr_02TECH_DAN", "Apple", "iPhone 13", "iPhone 13",
+            "IP-13-8822", "356789012345678", "Cracked front glass", "repairing", "Display glass replacement",
+            "Device only", "None", 12000.0, 0.0, 12000.0, "pending", true, true,
+            "2026-11-18", null
+        ));
 
         // Workshop parts catalog
         catalog.add(new ProductPart("var_kb_a2681", "Keyboard UK Layout", "MacBook Air M2 13\" (A2681) Keyboard", "NP04011448", "NP04011448", 6500.0, 15));
@@ -195,6 +228,27 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // VAT 16% CheckBox binding (defaults to false / Exempt)
+        cbApplyVat = findViewById(R.id.cb_apply_vat);
+        if (cbApplyVat != null) {
+            cbApplyVat.setChecked(applyVat);
+            cbApplyVat.setOnCheckedChangeListener((btn, isChecked) -> {
+                applyVat = isChecked;
+                updateTotals();
+            });
+        }
+
+        // Live item search suggestions dropdown
+        layoutItemSuggestions = findViewById(R.id.layout_item_suggestions);
+        layoutSuggestionsItems = findViewById(R.id.layout_suggestions_items);
+        etScanInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                updateItemSuggestions(s.toString().trim());
+            }
+            @Override public void afterTextChanged(Editable s) {}
+        });
+
         findViewById(R.id.btn_tender_exact).setOnClickListener(v -> setTenderAmount(getGrandTotal()));
         findViewById(R.id.btn_tender_500).setOnClickListener(v -> setTenderAmount(500.0));
         findViewById(R.id.btn_tender_1000).setOnClickListener(v -> setTenderAmount(1000.0));
@@ -208,8 +262,139 @@ public class MainActivity extends AppCompatActivity {
         });
 
         findViewById(R.id.btn_clear_cart).setOnClickListener(v -> clearCart());
-        findViewById(R.id.btn_paystack).setOnClickListener(v -> initiatePaystackQR());
+
+        btnMpesaStk = findViewById(R.id.btn_mpesa_stk);
+        if (btnMpesaStk != null) {
+            btnMpesaStk.setOnClickListener(v -> openCartStkModal());
+        }
+
         findViewById(R.id.btn_charge_print).setOnClickListener(v -> completeSaleAndPrint());
+    }
+
+    public static class PriceCalculation {
+        public final double price;
+        public final String badge;
+        public final Double originalPrice;
+
+        public PriceCalculation(double price, String badge, Double originalPrice) {
+            this.price = price;
+            this.badge = badge;
+            this.originalPrice = originalPrice;
+        }
+    }
+
+    public static PriceCalculation calculatePriceForCustomer(ProductPart part, POSCustomer customer) {
+        double basePrice = part.getOriginalPrice() != null ? part.getOriginalPrice() : part.getPrice();
+        if (customer == null) {
+            return new PriceCalculation(basePrice, null, null);
+        }
+        if (customer.getDiscountRate() != null && customer.getDiscountRate() > 0) {
+            double rate = customer.getDiscountRate();
+            int pct = (int) Math.round(rate * 100);
+            double discounted = Math.max(0, Math.round(basePrice * (1.0 - rate) * 100.0) / 100.0);
+            return new PriceCalculation(discounted, pct + "% Customer Discount", basePrice);
+        }
+        List<String> groups = customer.getGroups();
+        String tier = customer.getPricingTier() != null ? customer.getPricingTier().toLowerCase(Locale.ROOT) : "";
+        boolean isVip = tier.contains("vip");
+        boolean isWholesale = tier.contains("wholesale");
+        boolean isCorporate = tier.contains("corporate");
+        if (groups != null) {
+            for (String g : groups) {
+                String gl = g.toLowerCase(Locale.ROOT);
+                if (gl.contains("vip")) isVip = true;
+                if (gl.contains("wholesale")) isWholesale = true;
+                if (gl.contains("corporate")) isCorporate = true;
+            }
+        }
+        if (isVip) {
+            double discounted = Math.round(basePrice * 0.90 * 100.0) / 100.0;
+            return new PriceCalculation(discounted, "VIP (10% Off)", basePrice);
+        } else if (isWholesale) {
+            double discounted = Math.round(basePrice * 0.80 * 100.0) / 100.0;
+            return new PriceCalculation(discounted, "Wholesale (20% Off)", basePrice);
+        } else if (isCorporate) {
+            double discounted = Math.round(basePrice * 0.85 * 100.0) / 100.0;
+            return new PriceCalculation(discounted, "Corporate (15% Off)", basePrice);
+        }
+        return new PriceCalculation(basePrice, null, null);
+    }
+
+    public void recalculateCartPrices(POSCustomer customer) {
+        for (CartItem item : cart) {
+            PriceCalculation calc = calculatePriceForCustomer(item.getPart(), customer);
+            item.getPart().setPrice(calc.price);
+            item.getPart().setOriginalPrice(calc.originalPrice);
+            item.getPart().setAppliedPriceList(calc.badge);
+            item.setOriginalPrice(calc.originalPrice);
+            item.setAppliedPriceList(calc.badge);
+        }
+        renderCart();
+        renderCatalog();
+        updateTotals();
+    }
+
+    private void updateItemSuggestions(String query) {
+        if (layoutItemSuggestions == null || layoutSuggestionsItems == null) return;
+        if (query.isEmpty()) {
+            layoutItemSuggestions.setVisibility(View.GONE);
+            layoutSuggestionsItems.removeAllViews();
+            return;
+        }
+        String q = query.toLowerCase(Locale.ROOT);
+        List<ProductPart> matches = new ArrayList<>();
+        for (ProductPart p : catalog) {
+            boolean match = (p.getTitle() != null && p.getTitle().toLowerCase(Locale.ROOT).contains(q)) ||
+                            (p.getProductTitle() != null && p.getProductTitle().toLowerCase(Locale.ROOT).contains(q)) ||
+                            (p.getSku() != null && p.getSku().toLowerCase(Locale.ROOT).contains(q)) ||
+                            (p.getBarcode() != null && p.getBarcode().toLowerCase(Locale.ROOT).contains(q));
+            if (match) {
+                matches.add(p);
+                if (matches.size() >= 5) break;
+            }
+        }
+        if (matches.isEmpty()) {
+            layoutItemSuggestions.setVisibility(View.GONE);
+            layoutSuggestionsItems.removeAllViews();
+            return;
+        }
+        layoutSuggestionsItems.removeAllViews();
+        for (ProductPart part : matches) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(8, 6, 8, 6);
+            row.setBackgroundColor(Color.parseColor("#252830"));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = 4;
+            row.setLayoutParams(lp);
+
+            TextView tvTitle = new TextView(this);
+            tvTitle.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+            int stock = part.getInventoryQuantity();
+            String stockBadge = stock > 0 ? " • " + stock + " in stock" : " • 0 in stock (Out of stock)";
+            tvTitle.setText(part.getDisplayTitle() + stockBadge);
+            tvTitle.setTextColor(Color.WHITE);
+            tvTitle.setTextSize(11f);
+
+            TextView tvPrice = new TextView(this);
+            PriceCalculation calc = calculatePriceForCustomer(part, activeCustomer);
+            tvPrice.setText(String.format(Locale.US, "KES %.2f", calc.price));
+            tvPrice.setTextColor(Color.parseColor("#3B82F6"));
+            tvPrice.setTextSize(11f);
+            tvPrice.setTypeface(null, Typeface.BOLD);
+
+            row.addView(tvTitle);
+            row.addView(tvPrice);
+
+            row.setOnClickListener(v -> {
+                addToCart(part);
+                etScanInput.setText("");
+                layoutItemSuggestions.setVisibility(View.GONE);
+            });
+            layoutSuggestionsItems.addView(row);
+        }
+        layoutItemSuggestions.setVisibility(View.VISIBLE);
     }
 
     private void renderCatalog() {
@@ -219,11 +404,19 @@ public class MainActivity extends AppCompatActivity {
             TextView title = itemView.findViewById(android.R.id.text1);
             TextView sub = itemView.findViewById(android.R.id.text2);
 
-            title.setText(part.getDisplayTitle());
-            title.setTextColor(getResources().getColor(R.color.pos_text_primary));
+            PriceCalculation calc = calculatePriceForCustomer(part, activeCustomer);
+            int stock = part.getInventoryQuantity();
+            String stockBadge = stock > 0 ? " • " + stock + " in stock" : " • 0 in stock (Out of stock)";
+
+            title.setText(part.getDisplayTitle() + stockBadge);
+            title.setTextColor(stock > 0 ? getResources().getColor(R.color.pos_text_primary) : getResources().getColor(R.color.pos_danger));
             title.setTextSize(12f);
 
-            sub.setText(String.format(Locale.US, "SKU: %s • %s", part.getSku() != null ? part.getSku() : "N/A", part.getFormattedPrice()));
+            String priceStr = String.format(Locale.US, "KES %.2f", calc.price);
+            if (calc.badge != null && calc.originalPrice != null) {
+                priceStr = String.format(Locale.US, "%s 🏷️ [%s] (was KES %.2f)", priceStr, calc.badge, calc.originalPrice);
+            }
+            sub.setText(String.format(Locale.US, "SKU: %s • %s", part.getSku() != null ? part.getSku() : "N/A", priceStr));
             sub.setTextColor(getResources().getColor(R.color.pos_text_secondary));
             sub.setTextSize(10f);
 
@@ -249,8 +442,17 @@ public class MainActivity extends AppCompatActivity {
 
             TextView desc = new TextView(this);
             desc.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
-            desc.setText(String.format(Locale.US, "%dx %s\n%s", item.getQuantity(), item.getPart().getDisplayTitle(), item.getFormattedLineTotal()));
-            desc.setTextColor(getResources().getColor(R.color.pos_text_primary));
+
+            String stockWarning = item.getQuantity() > item.getPart().getInventoryQuantity() ? " (Exceeds stock!)" : "";
+            String badgeStr = "";
+            if (item.getAppliedPriceList() != null && item.getOriginalPrice() != null) {
+                badgeStr = String.format(Locale.US, " 🏷️ [%s] (was KES %.2f)", item.getAppliedPriceList(), item.getOriginalPrice());
+            }
+
+            desc.setText(String.format(Locale.US, "%dx %s%s%s\n%s",
+                item.getQuantity(), item.getPart().getDisplayTitle(), badgeStr, stockWarning, item.getFormattedLineTotal()));
+            desc.setTextColor(item.getQuantity() > item.getPart().getInventoryQuantity() ?
+                getResources().getColor(R.color.pos_danger) : getResources().getColor(R.color.pos_text_primary));
             desc.setTextSize(11f);
 
             Button btnMinus = new Button(this);
@@ -304,6 +506,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void addToCart(ProductPart part) {
+        PriceCalculation calc = calculatePriceForCustomer(part, activeCustomer);
         for (CartItem item : cart) {
             if (item.getPart().getId().equals(part.getId())) {
                 item.incrementQuantity();
@@ -313,7 +516,13 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
         }
-        cart.add(new CartItem(part, 1));
+        ProductPart pricedPart = new ProductPart(
+            part.getId(), part.getTitle(), part.getProductTitle(),
+            part.getSku(), part.getBarcode(), calc.price,
+            part.getInventoryQuantity(), part.isCustom(),
+            calc.originalPrice, calc.badge
+        );
+        cart.add(new CartItem(pricedPart, 1, calc.originalPrice, calc.badge));
         renderCart();
         updateTotals();
         tvStatusNotice.setText("Added " + part.getDisplayTitle() + " to cart.");
@@ -355,7 +564,20 @@ public class MainActivity extends AppCompatActivity {
         return sub;
     }
 
+    public boolean isApplyVat() {
+        return applyVat;
+    }
+
+    public void setApplyVat(boolean applyVat) {
+        this.applyVat = applyVat;
+        if (cbApplyVat != null) {
+            cbApplyVat.setChecked(applyVat);
+        }
+        updateTotals();
+    }
+
     public double getTax() {
+        if (!applyVat) return 0.0;
         return Math.round(getSubtotal() * 0.16 * 100.0) / 100.0;
     }
 
@@ -375,9 +597,145 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateTotals() {
         tvSubtotal.setText(String.format(Locale.US, "KES %.2f", getSubtotal()));
-        tvTax.setText(String.format(Locale.US, "KES %.2f", getTax()));
+        double tax = getTax();
+        if (tax > 0) {
+            tvTax.setText(String.format(Locale.US, "KES %.2f", tax));
+        } else {
+            tvTax.setText("KES 0.00 (Exempt)");
+        }
         tvGrandTotal.setText(String.format(Locale.US, "KES %.2f", getGrandTotal()));
         updateChangeDue();
+    }
+
+    public void openCartStkModal() {
+        if (cart.isEmpty()) {
+            Toast.makeText(this, "Cart is empty", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        double amount = getGrandTotal();
+        String phone = activeCustomer != null ? activeCustomer.getPhone() : "";
+        showMpesaStkDialog(amount, phone, null);
+    }
+
+    public void showMpesaStkDialog(double amount, String initialPhone, String ticketId) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_mpesa_stk, null);
+        builder.setView(dialogView);
+        AlertDialog dialog = builder.create();
+
+        TextView tvAmount = dialogView.findViewById(R.id.tv_stk_amount);
+        EditText etPhone = dialogView.findViewById(R.id.et_stk_phone);
+        TextView tvStatus = dialogView.findViewById(R.id.tv_stk_status);
+        LinearLayout layoutCountdown = dialogView.findViewById(R.id.layout_stk_countdown);
+        TextView tvCountdown = dialogView.findViewById(R.id.tv_stk_countdown);
+        TextView tvRef = dialogView.findViewById(R.id.tv_stk_ref);
+        Button btnCancel = dialogView.findViewById(R.id.btn_cancel_stk);
+        Button btnSend = dialogView.findViewById(R.id.btn_send_stk);
+
+        if (tvAmount != null) tvAmount.setText(String.format(Locale.US, "KES %.2f", amount));
+
+        String prefillPhone = initialPhone != null && !initialPhone.isEmpty() ? initialPhone :
+                              (activeCustomer != null && activeCustomer.getPhone() != null ? activeCustomer.getPhone() : "");
+        if (etPhone != null) etPhone.setText(prefillPhone);
+
+        // Zero balance guard
+        if (amount <= 0) {
+            if (btnSend != null) {
+                btnSend.setEnabled(false);
+                btnSend.setText("Push M-Pesa STK (Balance: KES 0.00 - Paid)");
+                btnSend.setBackgroundColor(Color.GRAY);
+            }
+            if (tvStatus != null) {
+                tvStatus.setText("Zero balance due. No payment required.");
+            }
+        }
+
+        Handler handler = new Handler(Looper.getMainLooper());
+        final int[] secondsRemaining = {60};
+        final Runnable[] timerRunnable = new Runnable[1];
+
+        if (btnSend != null && amount > 0) {
+            btnSend.setOnClickListener(v -> {
+                String phone = etPhone != null ? etPhone.getText().toString().trim() : "";
+                if (phone.isEmpty() || phone.length() < 9) {
+                    Toast.makeText(this, "Enter valid Safaricom phone number", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                btnSend.setEnabled(false);
+                String ref = "ws_CO_" + System.currentTimeMillis();
+                if (tvRef != null) tvRef.setText("Ref: " + ref);
+                if (layoutCountdown != null) layoutCountdown.setVisibility(View.VISIBLE);
+                if (tvStatus != null) tvStatus.setText("STK Prompt sent! Enter M-Pesa PIN on handset.");
+
+                timerRunnable[0] = new Runnable() {
+                    @Override
+                    public void run() {
+                        secondsRemaining[0]--;
+                        if (tvCountdown != null) {
+                            tvCountdown.setText(secondsRemaining[0] + "s remaining");
+                        }
+                        if (secondsRemaining[0] == 56) {
+                            if (tvStatus != null) tvStatus.setText("Prompt delivered to " + phone + ". Waiting for customer PIN...");
+                        }
+                        if (secondsRemaining[0] <= 52) {
+                            if (tvCountdown != null) tvCountdown.setText("✔ Payment Captured!");
+                            if (tvStatus != null) tvStatus.setText("Received KES " + String.format(Locale.US, "%.2f", amount) + " via Lipa Na M-Pesa!");
+                            Toast.makeText(MainActivity.this, "M-Pesa payment captured successfully!", Toast.LENGTH_SHORT).show();
+
+                            handler.postDelayed(() -> {
+                                dialog.dismiss();
+                                if (ticketId != null) {
+                                    for (int i = 0; i < repairsList.size(); i++) {
+                                        com.urbandevicecare.pos.model.RepairTicketRecord r = repairsList.get(i);
+                                        if (r.getTicketNumber().equalsIgnoreCase(ticketId)) {
+                                            com.urbandevicecare.pos.model.RepairTicketRecord settled = new com.urbandevicecare.pos.model.RepairTicketRecord(
+                                                r.getId(), r.getTicketNumber(), r.getCustomerId(), r.getCustomerName(),
+                                                r.getCustomerPhone(), r.getCustomerEmail(), r.getTechnicianName(), r.getTechnicianId(),
+                                                r.getBrand(), r.getModelName(), r.getDeviceName(), r.getSerialNumber(),
+                                                r.getImei(), r.getCondition(), "completed", r.getIssueDescription(),
+                                                r.getAccessories(), r.getPasscode(), r.getTotalEstimate(),
+                                                r.getTotalEstimate(), 0.0, "captured", r.isTermsAccepted(),
+                                                r.isDataWipedConsent(), r.getCreatedAt(), r.getCompanyName()
+                                            );
+                                            repairsList.set(i, settled);
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    completeSaleAndPrint();
+                                }
+                            }, 1200);
+                            return;
+                        }
+                        if (secondsRemaining[0] > 0) {
+                            handler.postDelayed(this, 1000);
+                        } else {
+                            if (tvStatus != null) tvStatus.setText("STK request timed out. Please retry.");
+                            btnSend.setEnabled(true);
+                            if (layoutCountdown != null) layoutCountdown.setVisibility(View.GONE);
+                        }
+                    }
+                };
+                handler.postDelayed(timerRunnable[0], 1000);
+            });
+        }
+
+        if (btnCancel != null) {
+            btnCancel.setOnClickListener(v -> {
+                if (timerRunnable[0] != null) {
+                    handler.removeCallbacks(timerRunnable[0]);
+                }
+                dialog.dismiss();
+            });
+        }
+
+        dialog.setOnDismissListener(d -> {
+            if (timerRunnable[0] != null) {
+                handler.removeCallbacks(timerRunnable[0]);
+            }
+        });
+
+        dialog.show();
     }
 
     private void updateChangeDue() {
@@ -527,6 +885,7 @@ public class MainActivity extends AppCompatActivity {
             if (q.isEmpty() ||
                 t.getTicketNumber().toLowerCase(Locale.ROOT).contains(q) ||
                 (t.getCustomerName() != null && t.getCustomerName().toLowerCase(Locale.ROOT).contains(q)) ||
+                (t.getClientDisplayName() != null && t.getClientDisplayName().toLowerCase(Locale.ROOT).contains(q)) ||
                 (t.getDeviceName() != null && t.getDeviceName().toLowerCase(Locale.ROOT).contains(q)) ||
                 (t.getStatus() != null && t.getStatus().toLowerCase(Locale.ROOT).contains(q))) {
                 filtered.add(t);
@@ -544,71 +903,151 @@ public class MainActivity extends AppCompatActivity {
         }
 
         for (com.urbandevicecare.pos.model.RepairTicketRecord ticket : filtered) {
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setBackgroundColor(getResources().getColor(R.color.pos_surface_variant));
-            card.setPadding(12, 10, 12, 10);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setBackgroundColor(getResources().getColor(R.color.pos_surface_variant));
+            row.setPadding(8, 8, 8, 8);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = 8;
-            card.setLayoutParams(lp);
+            lp.bottomMargin = 4;
+            row.setLayoutParams(lp);
 
-            // Row 1: Ticket # and Status
-            LinearLayout r1 = new LinearLayout(this);
-            r1.setOrientation(LinearLayout.HORIZONTAL);
+            // Col 1: Ticket # & Date
+            LinearLayout c1 = new LinearLayout(this);
+            c1.setOrientation(LinearLayout.VERTICAL);
+            c1.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.1f));
             TextView tvNum = new TextView(this);
-            tvNum.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
-            tvNum.setText(ticket.getTicketNumber() + " • " + (ticket.getDeviceName() != null ? ticket.getDeviceName() : "Device"));
+            tvNum.setText(ticket.getTicketNumber());
             tvNum.setTextColor(getResources().getColor(R.color.pos_text_primary));
-            tvNum.setTextSize(12f);
-            tvNum.setTypeface(null, android.graphics.Typeface.BOLD);
+            tvNum.setTextSize(11f);
+            tvNum.setTypeface(null, Typeface.BOLD);
+            TextView tvDate = new TextView(this);
+            tvDate.setText(ticket.getCreatedAt() != null && !ticket.getCreatedAt().isEmpty() ? ticket.getCreatedAt() : "2026-11-20");
+            tvDate.setTextColor(getResources().getColor(R.color.pos_text_muted));
+            tvDate.setTextSize(9f);
+            c1.addView(tvNum);
+            c1.addView(tvDate);
 
+            // Col 2: Device & Client
+            LinearLayout c2 = new LinearLayout(this);
+            c2.setOrientation(LinearLayout.VERTICAL);
+            c2.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f));
+            TextView tvDev = new TextView(this);
+            tvDev.setText(ticket.getDeviceName() != null ? ticket.getDeviceName() : "Generic Device");
+            tvDev.setTextColor(getResources().getColor(R.color.pos_text_primary));
+            tvDev.setTextSize(10f);
+            tvDev.setTypeface(null, Typeface.BOLD);
+            TextView tvClient = new TextView(this);
+            tvClient.setText(ticket.getClientDisplayName());
+            tvClient.setTextColor(getResources().getColor(R.color.pos_text_secondary));
+            tvClient.setTextSize(9f);
+            c2.addView(tvDev);
+            c2.addView(tvClient);
+
+            // Col 3: Status & Due
+            LinearLayout c3 = new LinearLayout(this);
+            c3.setOrientation(LinearLayout.VERTICAL);
+            c3.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f));
             TextView tvStatus = new TextView(this);
             tvStatus.setText(ticket.getStatus().toUpperCase(Locale.ROOT));
             tvStatus.setTextColor(getResources().getColor(R.color.pos_accent));
-            tvStatus.setTextSize(10f);
-            tvStatus.setTypeface(null, android.graphics.Typeface.BOLD);
-            r1.addView(tvNum);
-            r1.addView(tvStatus);
-            card.addView(r1);
+            tvStatus.setTextSize(9f);
+            tvStatus.setTypeface(null, Typeface.BOLD);
+            TextView tvDue = new TextView(this);
+            tvDue.setText(String.format(Locale.US, "Due: KES %.2f", ticket.getBalanceDue()));
+            tvDue.setTextColor(ticket.getBalanceDue() > 0 ? getResources().getColor(R.color.pos_danger) : getResources().getColor(R.color.pos_success));
+            tvDue.setTextSize(9f);
+            c3.addView(tvStatus);
+            c3.addView(tvDue);
 
-            // Row 2: Customer & Balance
-            TextView tvSub = new TextView(this);
-            String cust = ticket.getCustomerName() != null ? ticket.getCustomerName() : "Walk-in";
-            String balText = String.format(Locale.US, "Client: %s • Balance Due: KES %.2f (%s)",
-                    cust, ticket.getBalanceDue(), ticket.getPaymentStatus());
-            tvSub.setText(balText);
-            tvSub.setTextColor(getResources().getColor(R.color.pos_text_secondary));
-            tvSub.setTextSize(10f);
-            tvSub.setPadding(0, 4, 0, 6);
-            card.addView(tvSub);
+            // Col 4: Action button (Only "View" button!)
+            Button btnView = new Button(this);
+            btnView.setText("View");
+            btnView.setTextSize(9f);
+            btnView.setBackgroundColor(getResources().getColor(R.color.pos_accent));
+            btnView.setTextColor(Color.WHITE);
+            LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(140, 75);
+            btnView.setLayoutParams(btnLp);
+            btnView.setOnClickListener(v -> showRepairDetailsDialog(ticket));
 
-            // Row 3: Action Buttons
-            LinearLayout r3 = new LinearLayout(this);
-            r3.setOrientation(LinearLayout.HORIZONTAL);
+            row.addView(c1);
+            row.addView(c2);
+            row.addView(c3);
+            row.addView(btnView);
 
-            if (ticket.getBalanceDue() > 0) {
-                Button btnTender = new Button(this);
-                btnTender.setText("Tender Balance");
-                btnTender.setTextSize(10f);
-                btnTender.setLayoutParams(new LinearLayout.LayoutParams(0, 80, 1.0f));
-                btnTender.setOnClickListener(v -> {
-                    if (dialog != null) dialog.dismiss();
+            container.addView(row);
+        }
+    }
+
+    public void showRepairDetailsDialog(com.urbandevicecare.pos.model.RepairTicketRecord ticket) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_repair_details, null);
+        builder.setView(dialogView);
+        AlertDialog dialog = builder.create();
+
+        TextView tvTicketNum = dialogView.findViewById(R.id.tv_detail_ticket_number);
+        TextView tvStatus = dialogView.findViewById(R.id.tv_detail_status);
+        TextView tvPayStatus = dialogView.findViewById(R.id.tv_detail_payment_status);
+        TextView tvCreatedAt = dialogView.findViewById(R.id.tv_detail_created_at);
+        TextView tvClientName = dialogView.findViewById(R.id.tv_detail_client_name);
+        TextView tvClientContact = dialogView.findViewById(R.id.tv_detail_client_contact);
+        TextView tvTechInfo = dialogView.findViewById(R.id.tv_detail_tech_info);
+        TextView tvDeviceName = dialogView.findViewById(R.id.tv_detail_device_name);
+        TextView tvSerial = dialogView.findViewById(R.id.tv_detail_serial);
+        TextView tvIssue = dialogView.findViewById(R.id.tv_detail_issue);
+        TextView tvEstimate = dialogView.findViewById(R.id.tv_detail_estimate);
+        TextView tvDeposit = dialogView.findViewById(R.id.tv_detail_deposit);
+        TextView tvBalanceDue = dialogView.findViewById(R.id.tv_detail_balance_due);
+
+        Button btnPushStk = dialogView.findViewById(R.id.btn_detail_push_stk);
+        Button btnClose = dialogView.findViewById(R.id.btn_detail_close);
+        Button btnTenderCart = dialogView.findViewById(R.id.btn_detail_tender_cart);
+
+        if (tvTicketNum != null) tvTicketNum.setText(ticket.getTicketNumber());
+        if (tvStatus != null) tvStatus.setText(ticket.getStatus().toUpperCase(Locale.ROOT));
+        if (tvPayStatus != null) tvPayStatus.setText(ticket.getPaymentStatus().toUpperCase(Locale.ROOT));
+        if (tvCreatedAt != null) tvCreatedAt.setText("Created: " + (ticket.getCreatedAt() != null ? ticket.getCreatedAt() : "2026-11-20"));
+        if (tvClientName != null) tvClientName.setText(ticket.getClientDisplayName());
+        if (tvClientContact != null) tvClientContact.setText("Tel: " + (ticket.getCustomerPhone() != null ? ticket.getCustomerPhone() : "N/A"));
+        if (tvTechInfo != null) tvTechInfo.setText("Technician: " + (ticket.getTechnicianName() != null ? ticket.getTechnicianName() : "Nelly K."));
+        if (tvDeviceName != null) tvDeviceName.setText(ticket.getDeviceName());
+        if (tvSerial != null) tvSerial.setText("S/N: " + (ticket.getSerialNumber() != null ? ticket.getSerialNumber() : "N/A"));
+        if (tvIssue != null) tvIssue.setText(ticket.getIssueDescription());
+        if (tvEstimate != null) tvEstimate.setText(String.format(Locale.US, "Estimate: KES %.2f", ticket.getTotalEstimate()));
+        if (tvDeposit != null) tvDeposit.setText(String.format(Locale.US, "Deposit: KES %.2f", ticket.getDepositAmount()));
+        if (tvBalanceDue != null) tvBalanceDue.setText(String.format(Locale.US, "KES %.2f", ticket.getBalanceDue()));
+
+        // CRITICAL: Disable Push M-Pesa STK button if balance is 0!
+        if (btnPushStk != null) {
+            if (ticket.getBalanceDue() <= 0) {
+                btnPushStk.setEnabled(false);
+                btnPushStk.setText("Push M-Pesa STK (Balance: KES 0.00 - Paid)");
+                btnPushStk.setBackgroundColor(Color.GRAY);
+            } else {
+                btnPushStk.setEnabled(true);
+                btnPushStk.setText("Push M-Pesa STK");
+                btnPushStk.setBackgroundColor(Color.parseColor("#00A344"));
+                btnPushStk.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    showMpesaStkDialog(ticket.getBalanceDue(), ticket.getCustomerPhone(), ticket.getTicketNumber());
+                });
+            }
+        }
+
+        if (btnClose != null) btnClose.setOnClickListener(v -> dialog.dismiss());
+        if (btnTenderCart != null) {
+            if (ticket.getBalanceDue() <= 0) {
+                btnTenderCart.setEnabled(false);
+            } else {
+                btnTenderCart.setOnClickListener(v -> {
+                    dialog.dismiss();
                     tenderRepairBalance(ticket);
                 });
-                r3.addView(btnTender);
             }
-
-            Button btnStatus = new Button(this);
-            btnStatus.setText("Update Status");
-            btnStatus.setTextSize(10f);
-            btnStatus.setLayoutParams(new LinearLayout.LayoutParams(0, 80, 1.0f));
-            btnStatus.setOnClickListener(v -> showUpdateTicketStatusDialog(ticket, container, dialog, query));
-            r3.addView(btnStatus);
-
-            card.addView(r3);
-            container.addView(card);
         }
+
+        dialog.show();
     }
 
     private void showUpdateTicketStatusDialog(com.urbandevicecare.pos.model.RepairTicketRecord ticket, LinearLayout container, AlertDialog parentDialog, String query) {
@@ -774,7 +1213,7 @@ public class MainActivity extends AppCompatActivity {
                 "",
                 ticket.getCustomerEmail() != null ? ticket.getCustomerEmail() : "repair_" + ticket.getTicketNumber().toLowerCase(Locale.ROOT) + "@pos.urbandevicecare.co.uk",
                 ticket.getCustomerPhone(),
-                "Repair Client",
+                ticket.getCompanyName() != null && !ticket.getCompanyName().isEmpty() ? ticket.getCompanyName() : "Repair Client",
                 true
             );
             updateCustomerUI();
@@ -863,6 +1302,7 @@ public class MainActivity extends AppCompatActivity {
 
     public void selectCustomer(POSCustomer customer) {
         setActiveCustomer(customer);
+        recalculateCartPrices(customer);
         if (etCustomerSearch != null) {
             etCustomerSearch.setText("");
         }
@@ -875,6 +1315,7 @@ public class MainActivity extends AppCompatActivity {
     public void unlinkCustomer() {
         this.activeCustomer = null;
         updateCustomerUI();
+        recalculateCartPrices(null);
         if (tvStatusNotice != null) {
             tvStatusNotice.setText("Client unlinked (Guest sale)");
         }

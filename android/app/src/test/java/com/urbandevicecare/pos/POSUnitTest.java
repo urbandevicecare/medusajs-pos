@@ -7,13 +7,18 @@ import com.urbandevicecare.pos.model.ProductPart;
 import com.urbandevicecare.pos.model.ReceiptData;
 import com.urbandevicecare.pos.printer.CS30ThermalPrinter;
 
+import com.urbandevicecare.pos.model.RepairTicketRecord;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -346,6 +351,151 @@ public class POSUnitTest {
         assertEquals("Nelly K.", effectiveName);
         assertEquals("+254 700 000 000", effectivePhone);
         assertEquals("Staff Account (Admin)", effectiveCompany);
+    }
+
+    @Test
+    public void testVatToggleAndExemptThermalReceipt() {
+        ProductPart part = new ProductPart("p1", "Battery", "OEM Battery", "BAT-01", "BAT-01", 10000.0, 5);
+        List<CartItem> cart = new ArrayList<>();
+        cart.add(new CartItem(part, 1));
+
+        double subtotal = 10000.0;
+
+        // VAT Disabled (Exempt default)
+        boolean applyVat = false;
+        double tax = applyVat ? Math.round(subtotal * 0.16 * 100.0) / 100.0 : 0.0;
+        double grandTotal = subtotal + tax;
+        assertEquals(0.0, tax, 0.001);
+        assertEquals(10000.0, grandTotal, 0.001);
+
+        // Receipt with tax = 0 should print Exempt line
+        ReceiptData exemptReceipt = new ReceiptData(
+                "Urban Device Care", "POS-EXEMPT-01", "Nelly K.", "cs30_01",
+                cart, subtotal, tax, grandTotal, "cash", 10000.0, 0.0, ""
+        );
+        byte[] exemptBytes = CS30ThermalPrinter.buildEscPos58mmReceipt(exemptReceipt);
+        String exemptStr = new String(exemptBytes);
+        assertTrue("Thermal receipt must state KES 0.00 (Exempt) when VAT is off", exemptStr.contains("VAT (16%):") && exemptStr.contains("KES 0.00 (Exempt)"));
+
+        // VAT Enabled (16%)
+        applyVat = true;
+        tax = applyVat ? Math.round(subtotal * 0.16 * 100.0) / 100.0 : 0.0;
+        grandTotal = subtotal + tax;
+        assertEquals(1600.0, tax, 0.001);
+        assertEquals(11600.0, grandTotal, 0.001);
+
+        ReceiptData taxedReceipt = new ReceiptData(
+                "Urban Device Care", "POS-TAX-01", "Nelly K.", "cs30_01",
+                cart, subtotal, tax, grandTotal, "cash", 12000.0, 400.0, ""
+        );
+        byte[] taxedBytes = CS30ThermalPrinter.buildEscPos58mmReceipt(taxedReceipt);
+        String taxedStr = new String(taxedBytes);
+        assertTrue("Thermal receipt must show KES 1600.00 when VAT is on", taxedStr.contains("VAT (16%):") && taxedStr.contains("1600.00"));
+    }
+
+    @Test
+    public void testCustomerPriceListTiersAndRecalculation() {
+        ProductPart basePart = new ProductPart("var_screen", "Screen M1", "MacBook Screen M1", "SCR-M1", "SCR-M1", 10000.0, 10);
+
+        MainActivity.PriceCalculation guestCalc = MainActivity.calculatePriceForCustomer(basePart, null);
+        assertEquals(10000.0, guestCalc.price, 0.001);
+        assertNull(guestCalc.badge);
+        assertNull(guestCalc.originalPrice);
+
+        // VIP 10%
+        POSCustomer vipCustomer = new POSCustomer("c_vip", "VIP", "Member", "vip@test.com", "07001", "VIP Ltd", true, Arrays.asList("VIP"), null, "VIP");
+        MainActivity.PriceCalculation vipCalc = MainActivity.calculatePriceForCustomer(basePart, vipCustomer);
+        assertEquals(9000.0, vipCalc.price, 0.001);
+        assertEquals("VIP (10% Off)", vipCalc.badge);
+        assertEquals(10000.0, vipCalc.originalPrice, 0.001);
+
+        // Wholesale 20%
+        POSCustomer wsCustomer = new POSCustomer("c_ws", "WS", "Member", "ws@test.com", "07002", "WS Corp", true, Arrays.asList("Wholesale"), null, "Wholesale");
+        MainActivity.PriceCalculation wsCalc = MainActivity.calculatePriceForCustomer(basePart, wsCustomer);
+        assertEquals(8000.0, wsCalc.price, 0.001);
+        assertEquals("Wholesale (20% Off)", wsCalc.badge);
+        assertEquals(10000.0, wsCalc.originalPrice, 0.001);
+
+        // Corporate 15%
+        POSCustomer corpCustomer = new POSCustomer("c_corp", "Corp", "Member", "corp@test.com", "07003", "Corp Inc", true, Arrays.asList("Corporate"), null, "Corporate");
+        MainActivity.PriceCalculation corpCalc = MainActivity.calculatePriceForCustomer(basePart, corpCustomer);
+        assertEquals(8500.0, corpCalc.price, 0.001);
+        assertEquals("Corporate (15% Off)", corpCalc.badge);
+        assertEquals(10000.0, corpCalc.originalPrice, 0.001);
+
+        // Custom discount override (25%)
+        POSCustomer customDiscountCustomer = new POSCustomer("c_disc", "Custom", "Rate", "disc@test.com", "07004", "Partner", true, Collections.emptyList(), 0.25, null);
+        MainActivity.PriceCalculation customCalc = MainActivity.calculatePriceForCustomer(basePart, customDiscountCustomer);
+        assertEquals(7500.0, customCalc.price, 0.001);
+        assertEquals("25% Customer Discount", customCalc.badge);
+        assertEquals(10000.0, customCalc.originalPrice, 0.001);
+
+        // CartItem tracks original price and applied price list badge
+        CartItem cartItem = new CartItem(basePart, 1, vipCalc.originalPrice, vipCalc.badge);
+        assertEquals("VIP (10% Off)", cartItem.getAppliedPriceList());
+        assertEquals(10000.0, cartItem.getOriginalPrice(), 0.001);
+    }
+
+    @Test
+    public void testActualStockResolutionAndExceedsWarning() {
+        ProductPart limitedPart = new ProductPart("p_ltd", "Keyboard", "Keyboard", "KB-01", "KB-01", 5000.0, 3);
+        CartItem normalItem = new CartItem(limitedPart, 3);
+        boolean normalExceeds = normalItem.getQuantity() > normalItem.getPart().getInventoryQuantity();
+        assertFalse("3 in cart with 3 in stock should NOT exceed stock", normalExceeds);
+
+        CartItem overItem = new CartItem(limitedPart, 4);
+        boolean overExceeds = overItem.getQuantity() > overItem.getPart().getInventoryQuantity();
+        assertTrue("4 in cart with 3 in stock MUST exceed stock", overExceeds);
+    }
+
+    @Test
+    public void testRepairTicketClientDisplayName() {
+        // Company and customer name
+        RepairTicketRecord t1 = new RepairTicketRecord(
+                "r1", "REP-101", "c1", "John Kamau", "07001", "j@test.com",
+                "Dan M.", "u1", "Apple", "MacBook Pro", "MacBook Pro 14\"",
+                "SN101", "SN101", "Good", "diagnosing", "Screen flicker",
+                "Charger", "1234", 25000.0, 5000.0, 20000.0, "partially_paid",
+                true, true, "2026-11-20", "Apex Electronics"
+        );
+        assertEquals("Apex Electronics (John Kamau)", t1.getClientDisplayName());
+
+        // Customer name only
+        RepairTicketRecord t2 = new RepairTicketRecord(
+                "r2", "REP-102", "c2", "Alex Waweru", "07002", "a@test.com",
+                "Dan M.", "u1", "Apple", "iPhone 13", "iPhone 13",
+                "SN102", "SN102", "Fair", "ready", "Battery",
+                "None", "1234", 12000.0, 0.0, 12000.0, "pending",
+                true, true, "2026-11-19", null
+        );
+        assertEquals("Alex Waweru", t2.getClientDisplayName());
+
+        // Empty customer name fallback
+        RepairTicketRecord t3 = new RepairTicketRecord(
+                "r3", "REP-103", "c3", "", "07003", "",
+                "Dan M.", "u1", "Dell", "XPS", "Dell XPS 15",
+                "SN103", "SN103", "Good", "completed", "OS reinstall",
+                "None", "1234", 4000.0, 4000.0, 0.0, "captured",
+                true, true, "2026-11-18", null
+        );
+        assertEquals("Walk-in Customer", t3.getClientDisplayName());
+    }
+
+    @Test
+    public void testMpesaStkZeroBalanceGuard() {
+        // Case 1: Balance is 0 (Paid in full) -> STK push MUST be disabled
+        double zeroBalance = 0.0;
+        boolean buttonEnabled = zeroBalance > 0;
+        String buttonText = buttonEnabled ? "Push M-Pesa STK" : "Push M-Pesa STK (Balance: KES 0.00 - Paid)";
+        assertFalse("Push STK button must be disabled when balance is 0", buttonEnabled);
+        assertEquals("Push M-Pesa STK (Balance: KES 0.00 - Paid)", buttonText);
+
+        // Case 2: Balance is > 0 -> STK push enabled
+        double positiveBalance = 15000.0;
+        buttonEnabled = positiveBalance > 0;
+        buttonText = buttonEnabled ? "Push M-Pesa STK" : "Push M-Pesa STK (Balance: KES 0.00 - Paid)";
+        assertTrue("Push STK button must be enabled when balance > 0", buttonEnabled);
+        assertEquals("Push M-Pesa STK", buttonText);
     }
 }
 

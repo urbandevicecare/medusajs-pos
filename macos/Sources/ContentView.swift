@@ -145,15 +145,30 @@ public struct CatalogRowView: View {
                                 .foregroundColor(.secondary.opacity(0.7))
                         }
                     }
+                    if let badge = part.appliedPriceList, let orig = part.originalPrice, orig > part.price {
+                        Text("🏷️ \(badge) (was KES \(String(format: "%.2f", orig)))")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.purple)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.purple.opacity(0.12))
+                            .cornerRadius(3)
+                    }
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(part.formattedPrice)
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundColor(.primary)
-                    Text("Stock: \(part.inventoryQuantity)")
-                        .font(.system(size: 9))
-                        .foregroundColor(.green)
+                    if part.inventoryQuantity > 0 {
+                        Text("• \(part.inventoryQuantity) in stock")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.green)
+                    } else {
+                        Text("• 0 in stock (Out of stock)")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.red)
+                    }
                 }
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 16))
@@ -193,10 +208,35 @@ public struct CartRowView: View {
                 Text(item.part.displayTitle)
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
-                if let sku = item.part.sku {
-                    Text("SKU: \(sku)")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(.secondary)
+                HStack(spacing: 4) {
+                    if let sku = item.part.sku {
+                        Text("SKU: \(sku)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                    if item.part.inventoryQuantity > 0 {
+                        Text("• \(item.part.inventoryQuantity) in stock")
+                            .font(.system(size: 9))
+                            .foregroundColor(.green)
+                    } else {
+                        Text("• 0 in stock")
+                            .font(.system(size: 9))
+                            .foregroundColor(.red)
+                    }
+                    if item.quantity > item.part.inventoryQuantity {
+                        Text("(Exceeds stock!)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.red)
+                    }
+                }
+                if let badge = item.appliedPriceList, let orig = item.originalPrice, orig > item.part.price {
+                    Text("🏷️ \(badge) (was KES \(String(format: "%.2f", orig)))")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(.purple)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.purple.opacity(0.12))
+                        .cornerRadius(3)
                 }
             }
             Spacer()
@@ -274,6 +314,9 @@ public struct ContentView: View {
         }
         .sheet(item: $viewModel.selectedRepair) { ticket in
             RepairDetailsSheet(viewModel: viewModel, ticket: ticket)
+        }
+        .sheet(isPresented: $viewModel.showStkModal) {
+            MpesaStkSheet(viewModel: viewModel)
         }
     }
     
@@ -732,9 +775,12 @@ public struct ContentView: View {
             HStack {
                 Image(systemName: "barcode.viewfinder")
                     .foregroundColor(.secondary)
-                TextField("Scan 1D barcode SKU (e.g. NP04011448) or press Enter...", text: $viewModel.scanInput)
+                TextField("Scan 1D barcode SKU (e.g. NP04011448) or search part title...", text: $viewModel.scanInput)
                     .textFieldStyle(PlainTextFieldStyle())
                     .font(.system(size: 12))
+                    .onChange(of: viewModel.scanInput) { q in
+                        viewModel.updateSearchSuggestions(query: q)
+                    }
                     .onSubmit {
                         viewModel.processScanInput()
                     }
@@ -763,6 +809,85 @@ public struct ContentView: View {
                     .stroke(Color.gray.opacity(0.2), lineWidth: 1)
                     .allowsHitTesting(false)
             )
+            
+            if viewModel.showItemSuggestions && !viewModel.itemSuggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("SUGGESTIONS (\(viewModel.itemSuggestions.count))")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Button(action: { viewModel.showItemSuggestions = false }) {
+                            Image(systemName: "xmark.circle.fill").foregroundColor(.secondary).font(.system(size: 11))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 6)
+                    
+                    ScrollView {
+                        VStack(spacing: 4) {
+                            ForEach(viewModel.itemSuggestions) { sug in
+                                Button(action: {
+                                    viewModel.addToCart(part: sug)
+                                    viewModel.scanInput = ""
+                                    viewModel.showItemSuggestions = false
+                                }) {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(sug.displayTitle)
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundColor(.primary)
+                                                .lineLimit(1)
+                                            HStack(spacing: 6) {
+                                                if let sku = sug.sku {
+                                                    Text("SKU: \(sku)")
+                                                        .font(.system(size: 8, design: .monospaced))
+                                                        .foregroundColor(.secondary)
+                                                }
+                                                if sug.inventoryQuantity > 0 {
+                                                    Text("• \(sug.inventoryQuantity) in stock")
+                                                        .font(.system(size: 8, weight: .medium))
+                                                        .foregroundColor(.green)
+                                                } else {
+                                                    Text("• 0 in stock (Out of stock)")
+                                                        .font(.system(size: 8, weight: .bold))
+                                                        .foregroundColor(.red)
+                                                }
+                                            }
+                                        }
+                                        Spacer()
+                                        VStack(alignment: .trailing, spacing: 2) {
+                                            Text(sug.formattedPrice)
+                                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                                .foregroundColor(.primary)
+                                            if let badge = sug.appliedPriceList {
+                                                Text("🏷️ \(badge)")
+                                                    .font(.system(size: 8, weight: .bold))
+                                                    .foregroundColor(.purple)
+                                            }
+                                        }
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.system(size: 13))
+                                            .foregroundColor(.blue)
+                                    }
+                                    .padding(6)
+                                    .background(Color.blue.opacity(0.04))
+                                    .cornerRadius(4)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.bottom, 6)
+                    }
+                    .frame(maxHeight: 180)
+                }
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(8)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.blue.opacity(0.3), lineWidth: 1))
+                .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
+            }
             
             ScrollView {
                 VStack(spacing: 6) {
@@ -843,9 +968,16 @@ public struct ContentView: View {
                     Text(String(format: "KES %.2f", viewModel.subtotal)).font(.system(size: 10, design: .monospaced))
                 }
                 HStack {
-                    Text("VAT (16%):").font(.system(size: 10)).foregroundColor(.secondary)
+                    Toggle("VAT (16%):", isOn: $viewModel.applyVat)
+                        .toggleStyle(CheckboxToggleStyle())
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
                     Spacer()
-                    Text(String(format: "KES %.2f", viewModel.tax)).font(.system(size: 10, design: .monospaced))
+                    if viewModel.applyVat {
+                        Text(String(format: "KES %.2f", viewModel.tax)).font(.system(size: 10, design: .monospaced))
+                    } else {
+                        Text("KES 0.00 (Exempt)").font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary)
+                    }
                 }
                 Divider()
                 HStack {
@@ -886,13 +1018,35 @@ public struct ContentView: View {
                 .cornerRadius(6)
             }
             
-            MinimalButton(
-                title: "Complete & Print Receipt",
-                isPrimary: true,
-                isRunning: viewModel.isProcessing,
-                isDisabled: viewModel.cart.isEmpty
-            ) {
-                viewModel.completeSale()
+            VStack(spacing: 6) {
+                MinimalButton(
+                    title: "Complete & Print Receipt (Cash)",
+                    isPrimary: true,
+                    isRunning: viewModel.isProcessing,
+                    isDisabled: viewModel.cart.isEmpty || viewModel.grandTotal <= 0
+                ) {
+                    viewModel.completeSale()
+                }
+                
+                Button(action: {
+                    viewModel.openCartStkModal()
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "iphone.radiowaves.left.and.right")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("Push M-Pesa STK")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(viewModel.cart.isEmpty || viewModel.grandTotal <= 0 ? Color.green.opacity(0.3) : Color(red: 0.0, green: 0.64, blue: 0.27))
+                    .foregroundColor(.white)
+                    .cornerRadius(6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(viewModel.cart.isEmpty || viewModel.grandTotal <= 0)
+                .onHover { h in if h && !viewModel.cart.isEmpty && viewModel.grandTotal > 0 { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
             }
         }
         .frame(width: 280)
@@ -986,19 +1140,34 @@ public struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(viewModel.filteredRepairs) { ticket in
-                            RepairTicketCardView(ticket: ticket, onTender: {
-                                viewModel.tenderRepairBalance(ticket: ticket)
-                            }, onViewDetails: {
-                                viewModel.selectedRepair = ticket
-                            })
-                        }
+                VStack(spacing: 0) {
+                    HStack(alignment: .center, spacing: 8) {
+                        Text("TICKET # & DATE").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary).frame(width: 95, alignment: .leading)
+                        Text("DEVICE & ISSUE").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary).frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
+                        Text("CLIENT").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary).frame(width: 140, alignment: .leading)
+                        Text("TECH / SERIAL").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary).frame(width: 110, alignment: .leading)
+                        Text("STATUS").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary).frame(width: 90, alignment: .center)
+                        Text("PAYMENT").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary).frame(width: 80, alignment: .center)
+                        Text("BALANCE DUE").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary).frame(width: 90, alignment: .trailing)
+                        Text("ACTION").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary).frame(width: 60, alignment: .trailing)
                     }
-                    .padding(.vertical, 2)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.gray.opacity(0.08))
+                    .cornerRadius(4)
+                    
+                    ScrollView {
+                        LazyVStack(spacing: 4) {
+                            ForEach(viewModel.filteredRepairs) { ticket in
+                                RepairTicketRowView(ticket: ticket, onViewDetails: {
+                                    viewModel.selectedRepair = ticket
+                                })
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1171,11 +1340,10 @@ public struct QuickCustomerSheet: View {
     }
 }
 
-// MARK: - Repair Ticket Card View
+// MARK: - Repair Ticket Row View (Tabular List)
 
-public struct RepairTicketCardView: View {
+public struct RepairTicketRowView: View {
     public let ticket: RepairTicketRecord
-    public let onTender: () -> Void
     public let onViewDetails: () -> Void
     
     @State private var isHovered: Bool = false
@@ -1214,134 +1382,111 @@ public struct RepairTicketCardView: View {
     }
     
     public var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(ticket.ticketNumber)
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
-                        .foregroundColor(.primary)
-                    Text(ticket.status.replacingOccurrences(of: "_", with: " ").capitalized)
-                        .font(.system(size: 9, weight: .bold))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(statusColor.opacity(0.15))
-                        .foregroundColor(statusColor)
-                        .cornerRadius(4)
-                    Text(paymentBadgeText)
-                        .font(.system(size: 8, weight: .bold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(paymentBadgeColor.opacity(0.12))
-                        .foregroundColor(paymentBadgeColor)
-                        .cornerRadius(4)
-                    if let dName = ticket.deviceName, !dName.isEmpty {
-                        Text(dName)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.primary)
-                    }
-                    if let sNum = ticket.serialNumber, !sNum.isEmpty {
-                        Text("S/N: \(sNum)")
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
-                HStack(spacing: 8) {
-                    Text("Client: \(ticket.customerName ?? "Walk-in")")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.secondary)
-                    if let phone = ticket.customerPhone, !phone.isEmpty {
-                        Text("• Tel: \(phone)")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.secondary)
-                    }
-                    if let tech = ticket.technicianName, !tech.isEmpty {
-                        Text("• Tech: \(tech)")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.blue)
-                    }
-                    if let cond = ticket.condition, !cond.isEmpty {
-                        Text("• Condition: \(cond)")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
-                Text(ticket.issueDescription)
-                    .font(.system(size: 10))
+        HStack(alignment: .center, spacing: 8) {
+            // Ticket # & Date
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ticket.ticketNumber)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundColor(.primary)
+                Text(String(ticket.createdAt.prefix(10)))
+                    .font(.system(size: 8))
                     .foregroundColor(.secondary)
-                    .lineLimit(2)
             }
+            .frame(width: 95, alignment: .leading)
             
-            Spacer()
+            // Device & Issue
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ticket.deviceName ?? "\(ticket.brand ?? "") \(ticket.modelName ?? "")".trimmingCharacters(in: .whitespaces))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                Text(ticket.issueDescription)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
             
-            VStack(alignment: .trailing, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text("Est: KES \(String(format: "%.0f", ticket.totalEstimate))")
-                        .font(.system(size: 9))
+            // Client (Never "Workshop Client")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ticket.clientDisplayName)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                if let phone = ticket.customerPhone, !phone.isEmpty {
+                    Text(phone)
+                        .font(.system(size: 8, design: .monospaced))
                         .foregroundColor(.secondary)
-                    if ticket.depositAmount > 0 {
-                        Text("Dep: KES \(String(format: "%.0f", ticket.depositAmount))")
-                            .font(.system(size: 9))
-                            .foregroundColor(.green)
-                    }
-                }
-                
-                HStack(spacing: 4) {
-                    Text("Balance Due:")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.secondary)
-                    Text(String(format: "KES %.2f", ticket.balanceDue))
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
-                        .foregroundColor(ticket.balanceDue > 0 ? .orange : .green)
-                }
-                
-                HStack(spacing: 6) {
-                    Button(action: onViewDetails) {
-                        Text("Details")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.gray.opacity(0.12))
-                            .cornerRadius(4)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    
-                    if ticket.balanceDue > 0 {
-                        Button(action: onTender) {
-                            HStack(spacing: 3) {
-                                Image(systemName: "cart.badge.plus")
-                                Text("Add to Cart")
-                            }
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.green)
-                            .cornerRadius(4)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    } else {
-                        Text("Paid in Full")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.green)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.green.opacity(0.1))
-                            .cornerRadius(4)
-                    }
                 }
             }
+            .frame(width: 140, alignment: .leading)
+            
+            // Tech / Serial
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Tech: \(ticket.technicianName ?? "-")")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                Text("S/N: \(ticket.serialNumber ?? "-")")
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.secondary.opacity(0.8))
+                    .lineLimit(1)
+            }
+            .frame(width: 110, alignment: .leading)
+            
+            // Status
+            Text(ticket.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                .font(.system(size: 8, weight: .bold))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(statusColor.opacity(0.15))
+                .foregroundColor(statusColor)
+                .cornerRadius(4)
+                .frame(width: 90, alignment: .center)
+            
+            // Payment
+            Text(paymentBadgeText)
+                .font(.system(size: 8, weight: .bold))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(paymentBadgeColor.opacity(0.12))
+                .foregroundColor(paymentBadgeColor)
+                .cornerRadius(4)
+                .frame(width: 80, alignment: .center)
+            
+            // Balance Due
+            Text(String(format: "KES %.2f", ticket.balanceDue))
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundColor(ticket.balanceDue > 0 ? .orange : .green)
+                .frame(width: 90, alignment: .trailing)
+            
+            // Action (View only)
+            Button(action: onViewDetails) {
+                Text("View")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.blue)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(4)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+            .frame(width: 60, alignment: .trailing)
+            .onHover { h in if h { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
         }
-        .padding(10)
-        .background(isHovered ? Color.gray.opacity(0.08) : Color.gray.opacity(0.04))
-        .cornerRadius(8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(isHovered ? Color.blue.opacity(0.06) : Color.gray.opacity(0.03))
+        .cornerRadius(6)
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isHovered ? Color.blue.opacity(0.3) : Color.gray.opacity(0.15), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isHovered ? Color.blue.opacity(0.3) : Color.gray.opacity(0.1), lineWidth: 1)
+                .allowsHitTesting(false)
         )
-        .onHover { h in isHovered = h }
+        .onHover { hovering in
+            isHovered = hovering
+        }
     }
 }
 
@@ -1811,7 +1956,7 @@ public struct RepairDetailsSheet: View {
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("CLIENT INFORMATION").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
-                            Text(ticket.customerName ?? "Walk-in Client")
+                            Text(ticket.clientDisplayName)
                                 .font(.system(size: 12, weight: .bold))
                             if let ph = ticket.customerPhone, !ph.isEmpty { Text("Tel: \(ph)").font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary) }
                             if let em = ticket.customerEmail, !em.isEmpty { Text("Email: \(em)").font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary) }
@@ -1939,11 +2084,43 @@ public struct RepairDetailsSheet: View {
                         MinimalButton(title: "Close") {
                             viewModel.selectedRepair = nil
                         }
+                        Spacer()
                         if ticket.balanceDue > 0 {
-                            MinimalButton(title: "Tender Balance to Cart", isPrimary: true) {
+                            Button(action: {
+                                viewModel.openRepairStkModal(ticket: ticket)
+                            }) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "iphone.radiowaves.left.and.right")
+                                    Text("Push M-Pesa STK (KES \(String(format: "%.2f", ticket.balanceDue)))")
+                                }
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Color(red: 0.0, green: 0.64, blue: 0.27))
+                                .cornerRadius(5)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            
+                            MinimalButton(title: "Tender Cash to Cart", isPrimary: true) {
                                 viewModel.tenderRepairBalance(ticket: ticket)
                                 viewModel.selectedRepair = nil
                             }
+                        } else {
+                            Button(action: {}) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                    Text("Push M-Pesa STK (Balance: KES 0.00 - Paid)")
+                                }
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Color.gray.opacity(0.15))
+                                .cornerRadius(5)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .disabled(true)
                         }
                     }
                 }
@@ -2229,4 +2406,193 @@ public struct ServerSettingsSheet: View {
         .background(Color(NSColor.windowBackgroundColor))
     }
 }
+
+// MARK: - M-Pesa STK Push Express Checkout Sheet
+
+public struct MpesaStkSheet: View {
+    @ObservedObject public var viewModel: POSViewModel
+    
+    public init(viewModel: POSViewModel) {
+        self.viewModel = viewModel
+    }
+    
+    public var body: some View {
+        VStack(spacing: 16) {
+            // Header with Safaricom branding
+            HStack(spacing: 8) {
+                Image(systemName: "iphone.radiowaves.left.and.right")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(Color(red: 0.0, green: 0.64, blue: 0.27))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("LIPA NA M-PESA ONLINE")
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundColor(Color(red: 0.0, green: 0.64, blue: 0.27))
+                    Text("Direct STK Push Prompt to Customer Phone")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(action: {
+                    viewModel.cancelStkModal()
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.bottom, 4)
+            
+            Divider()
+            
+            // Amount Banner
+            HStack {
+                Text("Total Payable:")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text(String(format: "KES %.2f", viewModel.stkAmount))
+                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                    .foregroundColor(.primary)
+            }
+            .padding(10)
+            .background(Color.gray.opacity(0.06))
+            .cornerRadius(6)
+            
+            if viewModel.stkStep == "input" {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Customer Safaricom M-Pesa Phone Number")
+                        .font(.system(size: 11, weight: .semibold))
+                    TextField("2547XXXXXXXX", text: $viewModel.stkPhone)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.system(size: 12, design: .monospaced))
+                    
+                    if let ref = viewModel.stkTicketId {
+                        Text("Repair Ticket: \(ref)")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    if !viewModel.stkNotice.isEmpty {
+                        Text(viewModel.stkNotice)
+                            .font(.system(size: 10))
+                            .foregroundColor(.red)
+                    }
+                    
+                    HStack(spacing: 10) {
+                        MinimalButton(title: "Cancel") {
+                            viewModel.cancelStkModal()
+                        }
+                        
+                        Button(action: {
+                            viewModel.sendStkPush()
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "paperplane.fill")
+                                Text("Send STK Push Prompt")
+                            }
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(viewModel.stkAmount <= 0 ? Color.gray : Color(red: 0.0, green: 0.64, blue: 0.27))
+                            .cornerRadius(6)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(viewModel.stkAmount <= 0)
+                    }
+                    .padding(.top, 8)
+                }
+            } else if viewModel.stkStep == "sending" {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Connecting to Safaricom Daraja Gateway...")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
+            } else if viewModel.stkStep == "polling" {
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("Awaiting PIN Entry on Phone")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.primary)
+                    Text("STK prompt sent to \(viewModel.stkPhone).\nPlease request the customer to enter their M-Pesa PIN.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    
+                    Text("\(viewModel.stkCountdown)s remaining")
+                        .font(.system(size: 18, weight: .heavy, design: .monospaced))
+                        .foregroundColor(.orange)
+                    
+                    if !viewModel.stkReference.isEmpty {
+                        Text("Ref: \(viewModel.stkReference)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.secondary.opacity(0.8))
+                    }
+                    
+                    Button(action: {
+                        viewModel.cancelStkModal()
+                    }) {
+                        Text("Cancel Prompt")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
+            } else if viewModel.stkStep == "success" {
+                VStack(spacing: 12) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(.green)
+                    Text("Payment Received!")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.green)
+                    Text(viewModel.stkNotice)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    
+                    MinimalButton(title: "Done", isPrimary: true) {
+                        viewModel.cancelStkModal()
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
+            } else if viewModel.stkStep == "failed" {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 36))
+                        .foregroundColor(.red)
+                    Text("STK Push Failed")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.red)
+                    Text(viewModel.stkNotice)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    
+                    HStack(spacing: 8) {
+                        MinimalButton(title: "Retry", isPrimary: true) {
+                            viewModel.stkStep = "input"
+                        }
+                        MinimalButton(title: "Close") {
+                            viewModel.cancelStkModal()
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+}
+
 
