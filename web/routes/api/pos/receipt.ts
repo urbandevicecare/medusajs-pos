@@ -2,9 +2,10 @@ import {
   ThermalPrinterService,
   type ThermalReceiptData,
 } from "../../../services/thermal.ts";
+import { resolveRequest } from "../../../services/medusa.ts";
 
-export async function handler(req: Request): Promise<Response> {
-  const url = new URL(req.url);
+export function handler(ctxOrReq: any): Response {
+  const { url } = resolveRequest(ctxOrReq);
   const orderNumber = url.searchParams.get("order_number") || "POS-100234";
   const format = url.searchParams.get("format") || "escpos"; // "escpos" or "html"
 
