@@ -13,12 +13,18 @@ import { handler as posAuthHandler } from "../routes/api/pos/auth.ts";
 import { handler as posCustomersHandler } from "../routes/api/pos/customers.ts";
 import { handler as posRepairsHandler } from "../routes/api/pos/repairs.ts";
 import { handler as posProductsHandler } from "../routes/api/pos/products.ts";
+import { handler as posStkPushHandler } from "../routes/api/pos/stk-push.ts";
+import { handler as posVerifyPaymentHandler } from "../routes/api/pos/verify-payment.ts";
+import { handler as posPriceListsHandler } from "../routes/api/pos/price-lists.ts";
 import { handler as legacyScanHandler } from "../routes/api/scan.ts";
 import { handler as legacyCheckoutHandler } from "../routes/api/checkout.ts";
 import { handler as legacyReceiptHandler } from "../routes/api/receipt.ts";
 import { handler as legacyAuthHandler } from "../routes/api/auth.ts";
 import { handler as legacyCustomersHandler } from "../routes/api/customers.ts";
 import { handler as legacyRepairsHandler } from "../routes/api/repairs.ts";
+import { handler as legacyStkPushHandler } from "../routes/api/stk-push.ts";
+import { handler as legacyVerifyPaymentHandler } from "../routes/api/verify-payment.ts";
+import { handler as legacyPriceListsHandler } from "../routes/api/price-lists.ts";
 
 const service = new MedusaPOSService();
 
@@ -691,4 +697,195 @@ Deno.test("POS Products & Catalog: live search suggestions and infinite scroll p
   assertExists(data.products);
   assertEquals(typeof data.count, "number");
   assertEquals(typeof data.has_more, "boolean");
+});
+
+Deno.test("Automatic Price List recalculation for customer tiers, groups, and price lists", async () => {
+  const basePrice = 10000;
+
+  // 1. Walk-in customer (no group, no tier) -> Standard full price
+  const walkinPrice = service.calculatePriceForCustomer(
+    "var_screen",
+    basePrice,
+    null,
+  );
+  assertEquals(walkinPrice.unitPrice, 10000);
+  assertEquals(walkinPrice.originalPrice, 10000);
+
+  // 2. VIP Customer -> 10% discount automatically
+  const vipCust = {
+    id: "cus_vip_01",
+    first_name: "VIP",
+    email: "vip@example.com",
+    groups: [{ id: "grp_vip", name: "VIP" }],
+    pricing_tier: "VIP",
+  };
+  const vipPrice = service.calculatePriceForCustomer(
+    "var_screen",
+    basePrice,
+    vipCust,
+  );
+  assertEquals(vipPrice.unitPrice, 9000);
+  assertEquals(vipPrice.originalPrice, 10000);
+  assertEquals(vipPrice.discountPct, 10);
+
+  // 3. Wholesale / B2B Customer -> 20% discount automatically
+  const wholesaleCust = {
+    id: "cus_ws_01",
+    first_name: "Wholesale",
+    email: "trade@example.com",
+    groups: [{ id: "grp_ws", name: "Wholesale" }],
+    pricing_tier: "Wholesale",
+  };
+  const wsPrice = service.calculatePriceForCustomer(
+    "var_screen",
+    basePrice,
+    wholesaleCust,
+  );
+  assertEquals(wsPrice.unitPrice, 8000);
+  assertEquals(wsPrice.originalPrice, 10000);
+  assertEquals(wsPrice.discountPct, 20);
+
+  // 4. Custom discount rate in customer metadata (e.g. 15% custom partner rate)
+  const customCust = {
+    id: "cus_partner_01",
+    first_name: "Partner",
+    email: "partner@example.com",
+    discount_rate: 15,
+  };
+  const customPrice = service.calculatePriceForCustomer(
+    "var_screen",
+    basePrice,
+    customCust,
+  );
+  assertEquals(customPrice.unitPrice, 8500);
+  assertEquals(customPrice.discountPct, 15);
+
+  // 5. Explicit PriceList with variant override
+  const priceLists = [{
+    id: "pl_black_friday",
+    title: "Black Friday Screen Special",
+    status: "active",
+    rules: { customer_group_id: ["grp_vip"] },
+    prices: [{ id: "pr_1", amount: 7200, variant_id: "var_screen" }],
+  }];
+  const plPrice = service.calculatePriceForCustomer(
+    "var_screen",
+    basePrice,
+    vipCust,
+    priceLists,
+  );
+  assertEquals(plPrice.unitPrice, 7200);
+  assertEquals(plPrice.priceListName, "Black Friday Screen Special");
+
+  // 6. /api/pos/price-lists API route
+  const req = new Request("http://localhost:8000/api/pos/price-lists");
+  const res = await posPriceListsHandler(req);
+  assertEquals(res.status, 200);
+  const data = await res.json();
+  assertExists(data.price_lists);
+  assertEquals(Array.isArray(data.price_lists), true);
+});
+
+Deno.test("M-Pesa STK Push express checkout: initiation, polling, and verification API routes", async () => {
+  // 1. Initiate STK Push via /api/pos/stk-push
+  const pushReq = new Request("http://localhost:8000/api/pos/stk-push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phone: "0712345678",
+      amount: 4500,
+      order_id: "POS-TEST-123",
+    }),
+  });
+  const pushRes = await posStkPushHandler(pushReq);
+  assertEquals(pushRes.status, 200);
+  const pushData = await pushRes.json();
+  assertEquals(pushData.success, true);
+  assertExists(pushData.reference);
+
+  // 2. Legacy alias route /api/stk-push
+  const legacyPushReq = new Request("http://localhost:8000/api/stk-push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phone: "254722998877",
+      amount: 2500,
+    }),
+  });
+  const legacyPushRes = await legacyStkPushHandler(legacyPushReq);
+  assertEquals(legacyPushRes.status, 200);
+  const legacyPushData = await legacyPushRes.json();
+  assertEquals(legacyPushData.success, true);
+  assertExists(legacyPushData.reference);
+
+  // 3. Verify STK Payment via /api/pos/verify-payment
+  const verifyReq = new Request(
+    `http://localhost:8000/api/pos/verify-payment?reference=${pushData.reference}`,
+  );
+  const verifyRes = await posVerifyPaymentHandler(verifyReq);
+  assertEquals(verifyRes.status, 200);
+  const verifyData = await verifyRes.json();
+  assertEquals(verifyData.success, true);
+  assertEquals(verifyData.status, "success");
+
+  // 4. Validation: Missing phone or amount returns 400
+  const invalidReq = new Request("http://localhost:8000/api/pos/stk-push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone: "" }),
+  });
+  const invalidRes = await posStkPushHandler(invalidReq);
+  assertEquals(invalidRes.status, 400);
+});
+
+Deno.test("POS Checkout with digital receipt and documents plugin triggering", async () => {
+  const checkoutPayload = {
+    order_number: "POS-DIGITAL-001",
+    cashier: {
+      id: "usr_01KRV9NELLY",
+      name: "Nelly",
+      email: "nelly@urbandevicecare.co.uk",
+    },
+    customer: {
+      id: "cus_01JOHN_DOE",
+      first_name: "John",
+      last_name: "Doe",
+      phone: "+254712345678",
+      email: "john.doe@example.com",
+      company_name: "Nairobi Tech Ltd",
+    },
+    items: [
+      {
+        variant_id: "var_kb_a2681",
+        title: 'MacBook Air M2 13" Keyboard',
+        quantity: 1,
+        unit_price: 6500,
+        total: 6500,
+      },
+    ],
+    subtotal: 6500,
+    tax: 0,
+    grand_total: 6500,
+    tender: {
+      type: "paystack",
+      tendered: 6500,
+      change: 0,
+      reference: "STK-POS-998877",
+    },
+  };
+
+  const req = new Request("http://localhost:8000/api/pos/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(checkoutPayload),
+  });
+  const res = await posCheckoutHandler(req);
+  assertEquals(res.status, 200);
+  const data = await res.json();
+  assertEquals(data.success, true);
+  assertEquals(data.order_number, "POS-DIGITAL-001");
+  assertEquals(data.metadata.tender_type, "paystack");
+  assertEquals(data.metadata.paystack_reference, "STK-POS-998877");
+  assertEquals(data.metadata.customer_phone, "+254712345678");
+  assertEquals(data.metadata.customer_company, "Nairobi Tech Ltd");
 });
