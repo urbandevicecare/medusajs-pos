@@ -955,3 +955,42 @@ Deno.test("STK Push rejects zero or negative balance", async () => {
     "Valid phone number and amount are required",
   );
 });
+
+Deno.test("STK Push Verification does not return dummy approval for real references", async () => {
+  const service = new MedusaPOSService();
+
+  // 1. A simulated reference (from offline demo) is approved in simulation mode
+  const simResult = await service.verifyStkPayment("STK-POS-987654");
+  assertEquals(simResult.success, true);
+  assertEquals(simResult.status, "success");
+
+  // 2. A real gateway reference (non-simulated) must NEVER return fake dummy approval
+  const realResult = await service.verifyStkPayment("paystack_live_ref_99221100");
+  assertEquals(realResult.success, false);
+  assertEquals(realResult.status, "pending");
+});
+
+Deno.test("Repair Intake calculates estimates and stores live replacement parts accurately", async () => {
+  const service = new MedusaPOSService();
+  const ticket = await service.createRepairIntake(undefined, {
+    customer_id: "cus_01JOHN_DOE",
+    customer_name: "John Doe",
+    customer_phone: "+254712345678",
+    brand: "Apple",
+    model_name: "MacBook Pro M2 14-inch",
+    issue_description: "Cracked display panel replacement",
+    parts_estimate: 24500,
+    labor_estimate: 4000,
+    deposit_amount: 10000,
+  });
+
+  assertEquals(ticket.device?.brand, "Apple");
+  assertEquals(ticket.device?.model_name, "MacBook Pro M2 14-inch");
+  assertEquals(ticket.parts_estimate, 24500);
+  assertEquals(ticket.labor_estimate, 4000);
+  assertEquals(ticket.total_estimate, 28500);
+  assertEquals(ticket.amount_paid, 10000);
+  assertEquals(ticket.balance_due, 18500);
+  assertEquals(ticket.payment_status, "partially_paid");
+});
+
